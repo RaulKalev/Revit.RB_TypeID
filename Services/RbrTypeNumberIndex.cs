@@ -35,7 +35,10 @@ namespace RB_TypeName.Services
                 string val = param.AsString();
                 if (string.IsNullOrWhiteSpace(val)) continue;
 
-                index.Process(val.Trim());
+                string trimmed = val.Trim();
+                if (IsPlaceholder(trimmed)) continue;   // skip default "/" etc.
+
+                index.Process(trimmed);
             }
 
             return index;
@@ -68,6 +71,17 @@ namespace RB_TypeName.Services
         }
 
         // ── Private ──────────────────────────────────────────────────────────
+
+        /// <summary>
+        /// Returns true for values that are placeholder / default (e.g. "/", "-", "N/A").
+        /// These should be treated as unset rather than as real type numbers.
+        /// </summary>
+        private static bool IsPlaceholder(string s)
+        {
+            if (string.IsNullOrWhiteSpace(s)) return true;
+            string t = s.Trim();
+            return t == "/" || t == "-" || t == "N/A" || t == "n/a";
+        }
 
         private void Process(string value)
         {

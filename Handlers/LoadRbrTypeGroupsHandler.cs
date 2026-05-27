@@ -126,7 +126,8 @@ namespace RB_TypeName.Handlers
                     var first    = kv.Value[0];
                     var typeId   = first.GetTypeId();
                     var elemType = doc.GetElement(typeId) as ElementType;
-                    if (elemType == null) continue;
+                    if (elemType == null)             continue;
+                    if (elemType is ViewFamilyType)   continue;  // skip view types
 
                     var row = BuildRow(elemType, kv.Value, doc, typeSourceParam);
 
@@ -421,13 +422,19 @@ namespace RB_TypeName.Handlers
                 return row;
             }
 
-            string existing = typeParam.AsString();
-            row.ExistingTypeNumber = existing ?? string.Empty;
+            string existing        = typeParam.AsString();
+            string existingTrimmed = existing?.Trim() ?? string.Empty;
+            row.ExistingTypeNumber = existingTrimmed;
 
-            if (!string.IsNullOrWhiteSpace(existing))
+            // Treat placeholder values (e.g. "/", "-") as if the parameter is empty.
+            bool hasRealValue = !string.IsNullOrWhiteSpace(existingTrimmed)
+                && existingTrimmed != "/"
+                && existingTrimmed != "-";
+
+            if (hasRealValue)
             {
                 row.Status     = "Already has Type Number";
-                row.IsSelected = false;
+                row.IsSelected = true;   // checked by default; Preview/Apply skip by status
                 return row;
             }
 

@@ -93,8 +93,10 @@ namespace RB_TypeName.Handlers
                         continue;
                     }
 
-                    string existing = param.AsString();
-                    if (!string.IsNullOrWhiteSpace(existing))
+                    string existing = param.AsString()?.Trim();
+                    bool hasRealValue = !string.IsNullOrWhiteSpace(existing)
+                        && existing != "/" && existing != "-";
+                    if (hasRealValue)
                     {
                         row.Status  = "Skipped";
                         row.Message = "Type number was assigned since preview was built.";
