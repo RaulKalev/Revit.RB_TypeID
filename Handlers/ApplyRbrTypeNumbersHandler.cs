@@ -113,9 +113,9 @@ namespace RB_TypeName.Handlers
                     param.Set(row.ProposedTypeNumber);
 
                     string prefix = GetPrefix(row);
-                    int    num    = GetTrailingNumber(row.ProposedTypeNumber);
+                    int    num    = GetGeneratedNumber(row);
                     index.Register(row.ProposedTypeNumber, prefix, num);
-                    if (!string.IsNullOrWhiteSpace(prefix))
+                    if (!string.IsNullOrWhiteSpace(prefix) && num > 0)
                         ledger.UpdateLastIssuedNumber(prefix, num);
 
                     row.Status = "Assigned";
@@ -146,23 +146,36 @@ namespace RB_TypeName.Handlers
 
         // ── Helpers ──────────────────────────────────────────────────────────
 
+        // Prefix mirrors PreviewRbrTypeNumbersHandler: always the user/saved L1Code,
+        // trimmed and upper-cased. The PBS template is only used for the suffix after
+        // ZZZZ, never for the ledger prefix.
         private static string GetPrefix(TypeNumberPreviewRow row)
         {
-            string template = row.PbsTypeTemplate ?? string.Empty;
-            if (template.IndexOf("ZZZZ", StringComparison.OrdinalIgnoreCase) >= 0)
-                return template.Substring(0,
-                    template.IndexOf("ZZZZ", StringComparison.OrdinalIgnoreCase));
-
-            if (!string.IsNullOrWhiteSpace(row.L1Code))
-                return row.L1Code.TrimEnd('-') + "-";
-
-            return string.Empty;
+            string l1 = (row.L1Code ?? string.Empty).Trim().ToUpperInvariant();
+            return string.IsNullOrWhiteSpace(l1) ? string.Empty : l1;
         }
 
-        private static int GetTrailingNumber(string proposed)
+        // Extracts the 4-digit running number that appears immediately after the L1
+        // prefix in the proposed value. Supports values with a suffix after the digits
+        // (e.g. "CAM-020001-X" -> 1).
+        private static int GetGeneratedNumber(TypeNumberPreviewRow row)
         {
-            if (string.IsNullOrWhiteSpace(proposed)) return 0;
-            var m = Regex.Match(proposed, @"(\d{4})$");
+            string proposed = row.ProposedTypeNumber ?? string.Empty;
+            string prefix   = GetPrefix(row);
+
+            if (string.IsNullOrWhiteSpace(proposed) || string.IsNullOrWhiteSpace(prefix))
+                return 0;
+
+            if (!proposed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                return 0;
+
+            // Preview inserts a "-" separator when prefix doesn't already end with one
+            // and no PBS template is present. Skip it here so the digit match succeeds.
+            string rest = proposed.Substring(prefix.Length);
+            if (rest.StartsWith("-", StringComparison.Ordinal))
+                rest = rest.Substring(1);
+
+            var m = Regex.Match(rest, @"^(\d{4})");
             return m.Success && int.TryParse(m.Groups[1].Value, out int n) ? n : 0;
         }
     }
