@@ -46,6 +46,15 @@ namespace RB_TypeName.Handlers
         /// <summary>Settings restored from Extensible Storage (null if none saved).</summary>
         public TypeNumberSettings RestoredSettings { get; private set; }
 
+        /// <summary>Number of elements in the Revit selection at the time of execution.</summary>
+        public int SelectionCount { get; private set; }
+
+        /// <summary>Number of unique element types found across the selection.</summary>
+        public int TypeGroupCount { get; private set; }
+
+        /// <summary>Number of rows dropped by the active discipline filter.</summary>
+        public int FilteredOutCount { get; private set; }
+
         // ── Output callback — dispatched to UI thread ─────────────────────────
 
         /// <summary>Invoked with (rows, documentPath, discoveredParamNames) after completion.</summary>
@@ -56,12 +65,16 @@ namespace RB_TypeName.Handlers
         public void Execute(UIApplication app)
         {
             var result = new List<TypeNumberPreviewRow>();
+            SelectionCount   = 0;
+            TypeGroupCount   = 0;
+            FilteredOutCount = 0;
 
             try
             {
                 var uidoc       = app.ActiveUIDocument;
                 var doc         = uidoc.Document;
                 var selectedIds = uidoc.Selection.GetElementIds().ToList();
+                SelectionCount  = selectedIds.Count;
 
                 // Load settings from Extensible Storage.
                 // Settings are saved only when the user explicitly triggers Save/Import/Apply.
@@ -93,6 +106,8 @@ namespace RB_TypeName.Handlers
                     list.Add(element);
                 }
 
+                TypeGroupCount = groups.Count;
+
                 // ── Discover parameter names from a sample of elements ─────────
                 DiscoveredParameterNames = DiscoverParameterNames(groups, doc);
 
@@ -112,7 +127,10 @@ namespace RB_TypeName.Handlers
                     if (!string.IsNullOrWhiteSpace(SelectedDiscipline)
                         && !string.Equals(row.DisciplineCode, SelectedDiscipline,
                             StringComparison.OrdinalIgnoreCase))
+                    {
+                        FilteredOutCount++;
                         continue;
+                    }
 
                     result.Add(row);
                 }

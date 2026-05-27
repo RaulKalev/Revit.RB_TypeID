@@ -668,9 +668,43 @@ namespace RB_TypeName.UI
 
             // Mappings are already applied by the handler (from ExtStorage).
             TypeNumbersGrid.ItemsSource = rows;
-            TypeNumberSummaryText.Text  = rows == null || rows.Count == 0
-                ? "No element types found in current selection."
-                : $"{rows.Count} type(s) loaded.";
+
+            int rowCount = rows?.Count ?? 0;
+            if (rowCount > 0)
+            {
+                TypeNumberSummaryText.Text = $"{rowCount} type(s) loaded.";
+            }
+            else
+            {
+                int selCount   = _loadTypesHandler.SelectionCount;
+                int grpCount   = _loadTypesHandler.TypeGroupCount;
+                int filtered   = _loadTypesHandler.FilteredOutCount;
+                string discFilter = _loadTypesHandler.SelectedDiscipline;
+
+                string msg;
+                if (selCount == 0)
+                {
+                    msg = "No selection in Revit. Select element instances in the view, " +
+                          "then click 'Load Types from Selection'.";
+                }
+                else if (grpCount == 0)
+                {
+                    msg = $"Selected {selCount} element(s), but none have an associated " +
+                          "element type (e.g. lines, rooms, model groups are skipped).";
+                }
+                else if (filtered > 0 && !string.IsNullOrWhiteSpace(discFilter))
+                {
+                    msg = $"Selected {selCount} element(s) in {grpCount} type group(s), " +
+                          $"but all {filtered} were filtered out by Discipline = '{discFilter}'. " +
+                          "Try changing Discipline to '(All)'.";
+                }
+                else
+                {
+                    msg = $"Selected {selCount} element(s) in {grpCount} type group(s), " +
+                          "but no rows were produced.";
+                }
+                TypeNumberSummaryText.Text = msg;
+            }
 
             bool hasRows = rows != null && rows.Count > 0;
             SaveMappingsButton.IsEnabled        = hasRows;
