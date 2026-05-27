@@ -88,6 +88,14 @@ namespace RB_TypeName.Handlers
 
                 foreach (var element in collector)
                 {
+                    // Skip Revit links.
+                    if (element is RevitLinkInstance) continue;
+
+                    // Skip annotation/2D elements and internal Revit categories.
+                    // Only CategoryType.Model represents placed 3D model elements.
+                    var cat = element.Category;
+                    if (cat == null || cat.CategoryType != CategoryType.Model) continue;
+
                     ScannedInstanceCount++;
 
                     var typeId = element.GetTypeId();
