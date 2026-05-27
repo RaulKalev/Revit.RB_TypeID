@@ -53,6 +53,9 @@ namespace RB_TypeName.UI
         private readonly ExportTypeNumberMappingsHandler _exportMappingsHandler;
         private readonly ExternalEvent                   _exportMappingsEvent;
 
+        private readonly ClearObjectIdsHandler           _clearObjectIdsHandler;
+        private readonly ExternalEvent                   _clearObjectIdsEvent;
+
         // ── State ────────────────────────────────────────────────────────────
 
         private PbsExcelSourceSettings  _settings;
@@ -76,7 +79,8 @@ namespace RB_TypeName.UI
             ApplyRbrTypeNumbersHandler     applyTypeNumHandler, ExternalEvent applyTypeNumEvent,
             SaveTypeNumberMappingsHandler  saveMappingsHandler,  ExternalEvent saveMappingsEvent,
             ImportTypeNumberMappingsHandler importMappingsHandler, ExternalEvent importMappingsEvent,
-            ExportTypeNumberMappingsHandler exportMappingsHandler, ExternalEvent exportMappingsEvent)
+            ExportTypeNumberMappingsHandler exportMappingsHandler, ExternalEvent exportMappingsEvent,
+            ClearObjectIdsHandler           clearObjectIdsHandler, ExternalEvent clearObjectIdsEvent)
         {
             InitializeComponent();
 
@@ -99,6 +103,8 @@ namespace RB_TypeName.UI
             _importMappingsEvent   = importMappingsEvent;
             _exportMappingsHandler = exportMappingsHandler;
             _exportMappingsEvent   = exportMappingsEvent;
+            _clearObjectIdsHandler = clearObjectIdsHandler;
+            _clearObjectIdsEvent   = clearObjectIdsEvent;
 
             _assignHandler.OnCompleted = (results, index) =>
                 Dispatcher.Invoke(() => ShowAssignResults(results, index));
@@ -142,6 +148,16 @@ namespace RB_TypeName.UI
 
             _exportMappingsHandler.OnCompleted = (success, err) =>
                 Dispatcher.Invoke(() => HandleExportMappingCompleted(success, err));
+
+            _clearObjectIdsHandler.OnCompleted = (count, err) =>
+                Dispatcher.Invoke(() =>
+                {
+                    ClearObjectIdsButton.IsEnabled = true;
+                    if (err != null)
+                        SetStatus("Clear failed: " + err, isError: true);
+                    else
+                        SetStatus($"Cleared {count} Object ID(s) from project.", isError: false);
+                });
 
             LoadSettings();
         }
@@ -520,6 +536,24 @@ namespace RB_TypeName.UI
                 return;
 
             ResetPreviewState();
+        }
+
+        private void ClearObjectIds_Click(object sender, RoutedEventArgs e)
+        {
+            var result = MessageBox.Show(
+                "This will remove ALL RBR-Object_ID values from every element in the project.\n\n" +
+                "This cannot be undone without Revit's own Undo history.\n\n" +
+                "Are you sure you want to continue?",
+                "Clear All Object IDs",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (result != MessageBoxResult.Yes)
+                return;
+
+            ClearObjectIdsButton.IsEnabled = false;
+            SetStatus("Clearing Object IDs…", isError: false);
+            _clearObjectIdsEvent.Raise();
         }
 
         // ── DataGrid: single-click checkbox support ───────────────────────────

@@ -498,6 +498,8 @@ namespace RB_TypeName.Services
             else
             {
                 // Scan header rows for a matching header candidate.
+                var foundHeaders = new List<string>(); // for diagnostics
+
                 foreach (var headerRow in allRows)
                 {
                     int.TryParse(headerRow.Attribute("r")?.Value, out int rn);
@@ -514,9 +516,23 @@ namespace RB_TypeName.Services
 
                         if (val == null) continue;
                         val = val.Trim();
+                        if (val.Length == 0) continue;
 
-                        if (PrCodeHeaderCandidates.Any(h =>
-                            string.Equals(h, val, StringComparison.OrdinalIgnoreCase)))
+                        foundHeaders.Add($"{IndexToLetter(kv.Key)}:{val}");
+
+                        // Exact match first
+                        bool match = PrCodeHeaderCandidates.Any(h =>
+                            string.Equals(h, val, StringComparison.OrdinalIgnoreCase));
+
+                        // Fuzzy fallback: header contains "prcode" or "pr_code" or "pr code"
+                        if (!match)
+                        {
+                            string norm = val.Replace("-", "").Replace("_", "").Replace(" ", "")
+                                            .ToUpperInvariant();
+                            match = norm.Contains("PRCODE");
+                        }
+
+                        if (match)
                         {
                             colPrCode   = kv.Key;
                             columnFound = IndexToLetter(kv.Key);
@@ -525,12 +541,24 @@ namespace RB_TypeName.Services
                     }
                     if (colPrCode > 0) break;
                 }
-            }
 
-            if (colPrCode == 0)
-                return (null, null,
-                    "PBS Excelist ei leitud RBR_Pr_Code veergu.\n" +
-                    "Palun kontrolli faili või määra veerg seadetes käsitsi.");
+                if (colPrCode == 0 && foundHeaders.Count == 0)
+                {
+                    // No header rows found at all — check HeaderRow setting
+                    foundHeaders.Add($"(no cells found in rows 1–{settings.HeaderRow})");
+                }
+
+                if (colPrCode == 0)
+                {
+                    string headerList = foundHeaders.Count > 0
+                        ? string.Join(", ", foundHeaders.Take(20))
+                        : "(tühje lahtreid)";
+                    return (null, null,
+                        "PBS Excelist ei leitud RBR_Pr_Code veergu.\n" +
+                        "Leitud veerupäised:\n" + headerList + "\n\n" +
+                        "Seadetes saad täpsustada veerutähe käsitsi (nt \"E\").");
+                }
+            }
 
             // ── Read data rows ───────────────────────────────────────────────
             var result = new List<PbsPrCodeRow>();
