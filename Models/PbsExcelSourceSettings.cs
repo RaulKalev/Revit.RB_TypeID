@@ -111,8 +111,10 @@ namespace RB_TypeName.Models
         private static bool ReadBool(string json, string key, bool fallback)
         {
             var m = Regex.Match(json,
-                $@"""{Regex.Escape(key)}""\ s*:\s*(true|false)");
+                $@"""{Regex.Escape(key)}""\s*:\s*(true|false)",
+                RegexOptions.IgnoreCase);
             if (!m.Success) return fallback;
-            return m.Groups[1].Value == "true";
-        }    }
+            return string.Equals(m.Groups[1].Value, "true", StringComparison.OrdinalIgnoreCase);
+        }
+    }
 }

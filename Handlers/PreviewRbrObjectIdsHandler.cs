@@ -16,7 +16,10 @@ namespace RB_TypeName.Handlers
     public class PreviewRbrObjectIdsHandler : IExternalEventHandler
     {
         // ── Input — set from UI thread before Raise() ────────────────────────
-        public PbsPrCodeLookupService LookupService { get; set; }
+        public PbsPrCodeLookupService LookupService         { get; set; }
+        public bool                   UsePrCodeLookup       { get; set; } = true;
+        public bool                   UseManualMappingFallback { get; set; } = false;
+        public PbsMapping             ManualFallbackMapping  { get; set; }
 
         // ── Output callback — dispatch to UI thread ──────────────────────────
         public Action<List<ObjectIdPreviewRow>, RbrObjectIdIndex> OnCompleted { get; set; }
@@ -105,44 +108,15 @@ namespace RB_TypeName.Handlers
                 return row;
             }
 
-            // ── Read RBR_Pr_Code ─────────────────────────────────────────────
-            string prCode = RevitParameterResolver.ReadPrCode(element);
-            row.RbrPrCode = prCode ?? string.Empty;
-
-            if (string.IsNullOrWhiteSpace(prCode))
+            // ── Read RBR_Pr_Code / resolve PBS parts ─────────────────────────
+            if (!TryResolvePbsParts(element, row, out string partR, out string partS))
             {
-                row.Status     = "Missing RBR_Pr_Code";
                 row.IsSelected = false;
                 return row;
             }
 
-            if (LookupService == null)
-            {
-                row.Status     = "No PBS lookup available";
-                row.IsSelected = false;
-                return row;
-            }
-
-            // ── PBS lookup ───────────────────────────────────────────────────
-            var lookupResult = LookupService.FindByPrCode(prCode);
-            if (!lookupResult.Success)
-            {
-                row.Status     = lookupResult.Status;
-                row.Message    = lookupResult.Message ?? string.Empty;
-                row.IsSelected = false;
-                return row;
-            }
-
-            row.PbsPartR = lookupResult.Row.ObjectIdPart1;
-            row.PbsPartS = lookupResult.Row.ObjectIdPart2;
-            row.Message  = lookupResult.Warning ?? string.Empty;
-
-            if (string.IsNullOrWhiteSpace(row.PbsPartR) || string.IsNullOrWhiteSpace(row.PbsPartS))
-            {
-                row.Status     = "Missing PBS R/S code";
-                row.IsSelected = false;
-                return row;
-            }
+            row.PbsPartR = partR;
+            row.PbsPartS = partS;
 
             // ── Resolve level ────────────────────────────────────────────────
             if (!LevelCodeService.TryGetLevelAndCode(element, doc,
@@ -167,6 +141,92 @@ namespace RB_TypeName.Handlers
             row.ProposedObjectId = proposed;
             row.Status           = "Ready";
             return row;
+        }
+
+        private bool TryResolvePbsParts(
+            Element element,
+            ObjectIdPreviewRow row,
+            out string partR,
+            out string partS)
+        {
+            partR = null;
+            partS = null;
+
+            if (!UsePrCodeLookup)
+                return TryUseManualMapping(row, "Manual mapping mode", out partR, out partS);
+
+            string prCode = RevitParameterResolver.ReadPrCode(element);
+            row.RbrPrCode = prCode ?? string.Empty;
+
+            if (!string.IsNullOrWhiteSpace(prCode) && LookupService != null)
+            {
+                var lookupResult = LookupService.FindByPrCode(prCode);
+
+                if (lookupResult.Success && lookupResult.Row != null)
+                {
+                    partR        = lookupResult.Row.ObjectIdPart1;
+                    partS        = lookupResult.Row.ObjectIdPart2;
+                    row.Message  = lookupResult.Warning ?? string.Empty;
+
+                    if (!string.IsNullOrWhiteSpace(partR) && !string.IsNullOrWhiteSpace(partS))
+                        return true;
+                }
+
+                if (!UseManualMappingFallback)
+                {
+                    row.Status  = lookupResult.Status;
+                    row.Message = lookupResult.Message ?? string.Empty;
+                    return false;
+                }
+
+                return TryUseManualMapping(
+                    row,
+                    "Used manual fallback mapping because: " + lookupResult.Status,
+                    out partR,
+                    out partS);
+            }
+
+            if (!UseManualMappingFallback)
+            {
+                row.Status  = "Missing RBR_Pr_Code";
+                row.Message = "No PrCode available and manual fallback is disabled.";
+                return false;
+            }
+
+            return TryUseManualMapping(
+                row,
+                "Used manual fallback mapping because RBR_Pr_Code was missing.",
+                out partR,
+                out partS);
+        }
+
+        private bool TryUseManualMapping(
+            ObjectIdPreviewRow row,
+            string reason,
+            out string partR,
+            out string partS)
+        {
+            partR = null;
+            partS = null;
+
+            if (ManualFallbackMapping == null)
+            {
+                row.Status  = "No manual fallback mapping selected";
+                row.Message = reason;
+                return false;
+            }
+
+            partR       = ManualFallbackMapping.DisciplineCode;
+            partS       = ManualFallbackMapping.ObjectCode;
+            row.Message = reason;
+
+            if (string.IsNullOrWhiteSpace(partR) || string.IsNullOrWhiteSpace(partS))
+            {
+                row.Status = "Missing manual fallback R/S code";
+                return false;
+            }
+
+            return true;
         }
 
         private static string GetTypeName(Element element, Document doc)

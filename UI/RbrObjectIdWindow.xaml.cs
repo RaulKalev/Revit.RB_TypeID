@@ -39,6 +39,7 @@ namespace RB_TypeName.UI
 
         private PbsExcelSourceSettings  _settings;
         private List<ObjectIdPreviewRow> _previewRows;
+        private bool _isLoadingSettings;
 
         // ── Constructor ──────────────────────────────────────────────────────
 
@@ -72,20 +73,38 @@ namespace RB_TypeName.UI
 
         private void LoadSettings()
         {
-            _settings = PbsExcelSourceSettings.LoadFromFile(SettingsFile);
+            _isLoadingSettings = true;
 
-            UseRbrPrCodeLookupCheck.IsChecked       = _settings.UseRbrPrCodeLookup;
-            UseManualMappingFallbackCheck.IsChecked = _settings.UseManualMappingFallback;
-
-            if (!string.IsNullOrEmpty(_settings.ExcelPath))
+            try
             {
-                PbsFilePathBox.Text = _settings.ExcelPath;
+                _settings = PbsExcelSourceSettings.LoadFromFile(SettingsFile);
 
-                if (File.Exists(_settings.ExcelPath))
-                    ApplyLoadResult(PbsMappingService.Load(_settings));
-                else
-                    SetStatus("PBS file not found: " + _settings.ExcelPath, isError: true);
+                UseRbrPrCodeLookupCheck.IsChecked       = _settings.UseRbrPrCodeLookup;
+                UseManualMappingFallbackCheck.IsChecked = _settings.UseManualMappingFallback;
+
+                if (!string.IsNullOrEmpty(_settings.ExcelPath))
+                {
+                    PbsFilePathBox.Text = _settings.ExcelPath;
+
+                    if (File.Exists(_settings.ExcelPath))
+                        ApplyLoadResult(PbsMappingService.Load(_settings));
+                    else
+                        SetStatus("PBS file not found: " + _settings.ExcelPath, isError: true);
+                }
             }
+            finally
+            {
+                _isLoadingSettings = false;
+            }
+        }
+
+        private void OptionCheckBox_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_isLoadingSettings || _settings == null)
+                return;
+
+            SaveSettings();
+            ResetPreviewState();
         }
 
         private void SaveSettings()
@@ -177,17 +196,38 @@ namespace RB_TypeName.UI
                 return;
             }
 
-            var (success, error, prCodeRows) = PbsMappingService.LoadPrCodeRows(_settings);
-            if (!success)
+            SaveSettings();
+
+            _previewHandler.UsePrCodeLookup          = _settings.UseRbrPrCodeLookup;
+            _previewHandler.UseManualMappingFallback  = _settings.UseManualMappingFallback;
+            _previewHandler.ManualFallbackMapping     = MappingCombo.SelectedItem as PbsMapping;
+
+            if (_settings.UseRbrPrCodeLookup)
             {
-                MessageBox.Show(error, "PBS Load Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
+                var (success, error, prCodeRows) = PbsMappingService.LoadPrCodeRows(_settings);
+                if (!success)
+                {
+                    MessageBox.Show(error, "PBS Load Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                _previewHandler.LookupService = new PbsPrCodeLookupService(prCodeRows);
+            }
+            else
+            {
+                _previewHandler.LookupService = null;
+
+                if (MappingCombo.SelectedItem is not PbsMapping)
+                {
+                    MessageBox.Show(
+                        "Please load the PBS file and select a manual PBS mapping first.",
+                        "Preview", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
             }
 
-            _previewHandler.LookupService = new PbsPrCodeLookupService(prCodeRows);
-
             SetButtons(previewEnabled: false, applyEnabled: false, assignEnabled: false, exportEnabled: false);
-            SummaryText.Text           = "Building preview…";
+            SummaryText.Text           = "Building preview\u2026";
             ResultsGrid.ItemsSource    = null;
             WarningsBorder.Visibility  = Visibility.Collapsed;
             _previewRows               = null;
@@ -391,6 +431,14 @@ namespace RB_TypeName.UI
                 MessageBox.Show("Export failed:\n" + ex.Message,
                     "Export Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        private void MappingCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isLoadingSettings)
+                return;
+
+            ResetPreviewState();
         }
 
         // ── DataGrid: single-click checkbox support ───────────────────────────

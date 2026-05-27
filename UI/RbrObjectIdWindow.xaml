@@ -51,10 +51,14 @@
                 <CheckBox x:Name="UseRbrPrCodeLookupCheck"
                           Content="Use RBR_Pr_Code lookup as primary source  (Preview → Apply workflow)"
                           IsChecked="True"
-                          Margin="0,0,0,4" />
+                          Margin="0,0,0,4"
+                          Checked="OptionCheckBox_Changed"
+                          Unchecked="OptionCheckBox_Changed" />
                 <CheckBox x:Name="UseManualMappingFallbackCheck"
                           Content="Allow manual mapping fallback when RBR_Pr_Code lookup fails"
-                          IsChecked="False" />
+                          IsChecked="False"
+                          Checked="OptionCheckBox_Changed"
+                          Unchecked="OptionCheckBox_Changed" />
             </StackPanel>
         </GroupBox>
 
@@ -69,7 +73,8 @@
                           Grid.Column="0"
                           DisplayMemberPath="DisplayName"
                           Height="26"
-                          VerticalContentAlignment="Center" />
+                          VerticalContentAlignment="Center"
+                          SelectionChanged="MappingCombo_SelectionChanged" />
                 <TextBlock x:Name="MappingStatusText"
                            Grid.Column="1"
                            Margin="10,0,0,0"
