@@ -43,7 +43,25 @@ namespace RB_TypeName.Services
             => FindParameter(element, TypeNumberParameterNames);
 
         public static string ReadPrCode(Element element)
-            => FindPrCodeParameter(element)?.AsString();
+        {
+            // Check instance parameter first.
+            var p = FindPrCodeParameter(element);
+            if (p != null) return p.AsString();
+
+            // Fall back to the element type — PrCode is often a type-level shared parameter.
+            var typeId = element.GetTypeId();
+            if (typeId != null && typeId != ElementId.InvalidElementId)
+            {
+                var type = element.Document.GetElement(typeId);
+                if (type != null)
+                {
+                    var tp = FindPrCodeParameter(type);
+                    if (tp != null) return tp.AsString();
+                }
+            }
+
+            return null;
+        }
 
         public static string ReadObjectId(Element element)
             => FindObjectIdParameter(element)?.AsString();

@@ -75,7 +75,7 @@
                     </GroupBox>
 
                     <!-- ── PBS Mapping (manual fallback) ────────────────── -->
-                    <GroupBox Grid.Row="1" Header="PBS Mapping  (R – S columns)  —  manual fallback" Margin="0,0,0,8">
+                    <GroupBox Grid.Row="1" Header="PBS Mapping  (discipline, column R)  —  manual fallback" Margin="0,0,0,8">
                         <Grid Margin="8,6,8,6">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
@@ -83,7 +83,7 @@
                             </Grid.ColumnDefinitions>
                             <ComboBox x:Name="MappingCombo"
                                       Grid.Column="0"
-                                      DisplayMemberPath="DisplayName"
+                                      DisplayMemberPath="DisciplineCode"
                                       Height="26"
                                       VerticalContentAlignment="Center"
                                       SelectionChanged="MappingCombo_SelectionChanged" />

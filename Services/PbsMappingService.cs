@@ -220,11 +220,10 @@ namespace RB_TypeName.Services
 
                 string disciplineCode = rVal.Trim().ToUpperInvariant();
                 string objectCode     = sVal.Trim().ToUpperInvariant();
-                string pbsCode        = disciplineCode + "-" + objectCode;
 
-                if (seenCodes.Contains(pbsCode))
+                if (seenCodes.Contains(disciplineCode))
                     continue;
-                seenCodes.Add(pbsCode);
+                seenCodes.Add(disciplineCode);
 
                 string tVal = GetCellValue(cells, colT, sharedStrings);
                 string kVal = GetCellValue(cells, colK, sharedStrings);
