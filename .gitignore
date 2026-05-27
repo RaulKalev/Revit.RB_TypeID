@@ -1,0 +1,21 @@
+# Build outputs
+bin/
+obj/
+
+# Visual Studio
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# NuGet
+*.nupkg
+packages/
+
+# FodyWeavers auto-generated schema (optional — keep FodyWeavers.xml)
+FodyWeavers.xsd
+
+# OS
+Thumbs.db
+.DS_Store

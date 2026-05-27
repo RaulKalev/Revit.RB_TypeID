@@ -1,0 +1,132 @@
+<Window x:Class="RB_TypeName.UI.RbrObjectIdWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="RBR Object ID — Type Name"
+        Width="720" Height="640"
+        MinWidth="580" MinHeight="480"
+        WindowStartupLocation="CenterScreen">
+
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />  <!-- PBS File -->
+            <RowDefinition Height="Auto" />  <!-- PBS Mapping -->
+            <RowDefinition Height="Auto" />  <!-- Warnings -->
+            <RowDefinition Height="Auto" />  <!-- Assign button -->
+            <RowDefinition Height="*"    />  <!-- Results grid -->
+            <RowDefinition Height="Auto" />  <!-- Summary footer -->
+        </Grid.RowDefinitions>
+
+        <!-- ── PBS File ─────────────────────────────────────────────────── -->
+        <GroupBox Grid.Row="0" Header="PBS File" Margin="0,0,0,8">
+            <Grid Margin="8,6,8,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBox x:Name="PbsFilePathBox"
+                         Grid.Column="0"
+                         IsReadOnly="True"
+                         VerticalContentAlignment="Center"
+                         Margin="0,0,4,0"
+                         Height="26" />
+                <Button x:Name="BrowseButton"
+                        Grid.Column="1"
+                        Content="Browse…"
+                        Width="75" Height="26"
+                        Margin="0,0,4,0"
+                        Click="Browse_Click" />
+                <Button x:Name="ReloadButton"
+                        Grid.Column="2"
+                        Content="Reload"
+                        Width="62" Height="26"
+                        Click="Reload_Click" />
+            </Grid>
+        </GroupBox>
+
+        <!-- ── PBS Mapping ──────────────────────────────────────────────── -->
+        <GroupBox Grid.Row="1" Header="PBS Mapping  (R – S columns)" Margin="0,0,0,8">
+            <Grid Margin="8,6,8,6">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox x:Name="MappingCombo"
+                          Grid.Column="0"
+                          DisplayMemberPath="DisplayName"
+                          Height="26"
+                          VerticalContentAlignment="Center" />
+                <TextBlock x:Name="MappingStatusText"
+                           Grid.Column="1"
+                           Margin="10,0,0,0"
+                           VerticalAlignment="Center"
+                           Foreground="Gray"
+                           FontStyle="Italic"
+                           FontSize="11" />
+            </Grid>
+        </GroupBox>
+
+        <!-- ── Warnings (duplicates / malformed IDs found in model) ─────── -->
+        <Border x:Name="WarningsBorder"
+                Grid.Row="2"
+                Background="#FFF3CD"
+                BorderBrush="#FFC107"
+                BorderThickness="1"
+                CornerRadius="3"
+                Margin="0,0,0,8"
+                Padding="8,5"
+                Visibility="Collapsed">
+            <TextBlock x:Name="WarningsText"
+                       Foreground="#856404"
+                       FontSize="11"
+                       TextWrapping="Wrap" />
+        </Border>
+
+        <!-- ── Assign button ────────────────────────────────────────────── -->
+        <Button x:Name="AssignButton"
+                Grid.Row="3"
+                Content="Assign IDs to Current Revit Selection"
+                Height="32"
+                FontSize="13"
+                Margin="0,0,0,8"
+                Click="Assign_Click" />
+
+        <!-- ── Results DataGrid ─────────────────────────────────────────── -->
+        <DataGrid x:Name="ResultsGrid"
+                  Grid.Row="4"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal"
+                  BorderBrush="#CCCCCC"
+                  BorderThickness="1"
+                  FontSize="11">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Element ID"
+                                    Binding="{Binding ElementIdValue}"
+                                    Width="80" />
+                <DataGridTextColumn Header="Status"
+                                    Binding="{Binding Status}"
+                                    Width="120" />
+                <DataGridTextColumn Header="Old Value"
+                                    Binding="{Binding OldValue}"
+                                    Width="155" />
+                <DataGridTextColumn Header="New Value"
+                                    Binding="{Binding NewValue}"
+                                    Width="155" />
+                <DataGridTextColumn Header="Message"
+                                    Binding="{Binding Message}"
+                                    Width="*" />
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- ── Summary footer ───────────────────────────────────────────── -->
+        <TextBlock x:Name="SummaryText"
+                   Grid.Row="5"
+                   Margin="0,6,0,0"
+                   FontWeight="SemiBold"
+                   FontSize="12" />
+    </Grid>
+</Window>
