@@ -63,15 +63,18 @@ The toolbar in the Type Numbers tab includes two additional buttons for bulk L1 
 2. The plugin validates headers, checks L1 code format (`^[A-Z0-9_\-]+$`), and reports any invalid or conflicting rows.
 3. Choose an import mode:
    - **Override existing mappings** — replaces stored L1 codes with the imported values and immediately updates the grid.
-   - **Only add new mappings** — keeps existing stored L1 codes; only fills in previously empty entries.
-4. Mappings are saved to a per-document NDJSON file and are reloaded automatically the next time you click **Load Types from Selection**.
+   - **Only add new mappings** — keeps existing stored L1 codes; only fills in entries with no stored mapping.
+4. All valid imported records are saved directly to Revit Extensible Storage inside the model, independent of which rows are currently visible in the grid.
 
-Mappings are stored in:
-```
-%LocalAppData%\RK Tools\RB_TypeName\TypeNumberMappings_<documentKey>.json
-```
+Mappings are stored inside the Revit model using **Extensible Storage** (schema `RKTools_RbrTypeNumberMappings`). They travel with the model file and require no external file system access.
 
-The match key used for import/export is `Category|FamilyName|TypeName` (normalised, case-insensitive) and is therefore stable across Revit sessions.
+The match key used for import/export is:
+```
+DisciplineCode | RBR_Pr_Code | TypeSourceParameterName | TypeSourceValue
+```
+(normalised, case-insensitive) — stable across Revit sessions as long as the type source parameter selection is consistent.
+
+> **Legacy migration** — if no Extensible Storage mappings exist on first load, the plugin reads the old per-document NDJSON file (`%LocalAppData%\RK Tools\RB_TypeName\TypeNumberMappings_<documentKey>.json`) once and migrates its records into Extensible Storage. The local file is **not** deleted automatically.
 
 ## Object ID format
 
@@ -116,7 +119,8 @@ When no template is present, the format is `<L1Code>-<0001>`.
 | `Models/ObjectIdPreviewRow.cs` | DataGrid row for the Object IDs tab |
 | `Models/TypeNumberPreviewRow.cs` | DataGrid row for the Type Numbers tab; exposes computed `MatchKey` used by mapping storage |
 | `Models/PbsTypeNumberRow.cs` | PBS row carrying type-number template data |
-| `Models/TypeNumberMappingRecord.cs` | Persisted mapping record (Category/FamilyName/TypeName → L1Code + Notes) |
+| `Models/TypeNumberMappingRecord.cs` | Persisted mapping record — key fields: DisciplineCode, RBR_Pr_Code, TypeSourceParameterName, TypeSourceValue; value: L1Code + Notes |
+| `Models/TypeNumberMappingUpsertResult.cs` | Counts returned by the Extensible Storage upsert operation (Added/Updated/SkippedExisting/Invalid) |
 | `Models/TypeNumberMappingImportResult.cs` | Import summary: row counts and per-row issue messages |
 | `Services/PbsMappingService.cs` | Reads PBS `.xlsx` via ZIP+XML (no NuGet Excel deps) |
 | `Services/LevelCodeService.cs` | Resolves a Revit element → level code string |
@@ -124,13 +128,17 @@ When no template is present, the format is `<L1Code>-<0001>`.
 | `Services/RbrObjectIdAssignmentService.cs` | Core Object ID assignment loop |
 | `Services/RbrTypeNumberIndex.cs` | In-memory index of existing Type Numbers; tracks max per prefix |
 | `Services/RbrTypeNumberLedgerService.cs` | JSON ledger of last-issued numbers per prefix, per document |
-| `Services/TypeNumberMappingStorageService.cs` | Per-document NDJSON mapping store (Category\|Family\|Type → L1Code); applied on every type load |
+| `Services/TypeNumberMappingStorageService.cs` | **Legacy** per-document NDJSON mapping reader — used only as a one-time migration source; not the primary storage |
+| `Services/TypeNumberMappingExtensibleStorageService.cs` | Stores type-number mappings in Revit Extensible Storage (JSON blob, schema `RKTools_RbrTypeNumberMappings`). `Load()` is read-only; `Save()` / `Upsert()` require an active Transaction |
+| `Services/TypeNumberSettingsStorageService.cs` | Stores Type Numbers tab settings (selected TypeSource param, selected Discipline) in Revit Extensible Storage (schema `RKTools_RbrTypeNumberSettings`) |
 | `Services/TypeNumberMappingExcelService.cs` | xlsx export/import for bulk L1 Code management; uses ZIP+XML (no new NuGet deps); includes `TypeNumberExcelExportMode` / `TypeNumberExcelImportMode` enums |
 | `Services/RevitParameterResolver.cs` | Parameter lookup helpers for `RBR_Pr_Code`, `RBR-Object_ID`, `RBR-Type_number` |
 | `Handlers/AssignRbrObjectIdsHandler.cs` | `IExternalEventHandler` — runs inside a Revit transaction |
 | `Handlers/PreviewRbrObjectIdsHandler.cs` | `IExternalEventHandler` — builds Object ID preview without modifying the model |
 | `Handlers/ApplyRbrObjectIdsHandler.cs` | `IExternalEventHandler` — applies previewed Object IDs in a transaction |
-| `Handlers/LoadRbrTypeGroupsHandler.cs` | `IExternalEventHandler` — groups selected elements by ElementType, performs PBS lookup; passes document path back through callback so stored mappings can be loaded |
+| `Handlers/LoadRbrTypeGroupsHandler.cs` | `IExternalEventHandler` — groups selected elements by ElementType, performs PBS lookup, discovers type-source parameters, loads saved mappings from Extensible Storage, migrates old NDJSON on first run |
+| `Handlers/SaveTypeNumberMappingsHandler.cs` | `IExternalEventHandler` — upserts current grid L1Codes into Extensible Storage (merge, never replaces unrelated mappings); saves current TypeSource/Discipline settings |
+| `Handlers/ImportTypeNumberMappingsHandler.cs` | `IExternalEventHandler` — saves all parsed Excel records to Extensible Storage via `Upsert()`, independent of which rows are visible in the grid |
 | `Handlers/PreviewRbrTypeNumbersHandler.cs` | `IExternalEventHandler` — generates proposed Type Numbers without modifying the model |
 | `Handlers/ApplyRbrTypeNumbersHandler.cs` | `IExternalEventHandler` — writes Type Numbers to ElementTypes, saves ledger |
 | `UI/RbrObjectIdWindow.xaml(.cs)` | WPF window — two-tab layout (Object IDs / Type Numbers), shared PBS file picker, Export/Import Mapping buttons with mode-choice dialogs |

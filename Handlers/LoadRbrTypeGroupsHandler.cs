@@ -63,9 +63,9 @@ namespace RB_TypeName.Handlers
                 var doc         = uidoc.Document;
                 var selectedIds = uidoc.Selection.GetElementIds().ToList();
 
-                // Load + save settings from/to Extensible Storage.
+                // Load settings from Extensible Storage.
+                // Settings are saved only when the user explicitly triggers Save/Import/Apply.
                 RestoredSettings = TypeNumberSettingsStorageService.Load(doc);
-                TrySaveSettings(doc);
 
                 string docPath = doc.PathName ?? doc.Title ?? "default";
 
@@ -166,23 +166,7 @@ namespace RB_TypeName.Handlers
 
         public string GetName() => "Load RBR Type Groups";
 
-        // ── Private — settings ────────────────────────────────────────────────
-
-        private void TrySaveSettings(Document doc)
-        {
-            try
-            {
-                using var t = new Transaction(doc, "Save RBR Type Number Settings");
-                t.Start();
-                TypeNumberSettingsStorageService.Save(doc, new TypeNumberSettings
-                {
-                    SelectedTypeSourceParameterName = TypeSourceParameterName ?? "Revit Type Name",
-                    SelectedDisciplineCode          = SelectedDiscipline ?? string.Empty,
-                });
-                t.Commit();
-            }
-            catch { /* non-critical */ }
-        }
+        // ── Private — migration ───────────────────────────────────────────────
 
         private void TrySaveMigratedMappings(Document doc,
             IEnumerable<TypeNumberMappingRecord> records)

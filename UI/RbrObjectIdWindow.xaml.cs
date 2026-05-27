@@ -47,6 +47,9 @@ namespace RB_TypeName.UI
         private readonly SaveTypeNumberMappingsHandler  _saveMappingsHandler;
         private readonly ExternalEvent                  _saveMappingsEvent;
 
+        private readonly ImportTypeNumberMappingsHandler _importMappingsHandler;
+        private readonly ExternalEvent                   _importMappingsEvent;
+
         // ── State ────────────────────────────────────────────────────────────
 
         private PbsExcelSourceSettings  _settings;
@@ -68,7 +71,8 @@ namespace RB_TypeName.UI
             LoadRbrTypeGroupsHandler       loadTypesHandler,    ExternalEvent loadTypesEvent,
             PreviewRbrTypeNumbersHandler   previewTypeNumHandler, ExternalEvent previewTypeNumEvent,
             ApplyRbrTypeNumbersHandler     applyTypeNumHandler, ExternalEvent applyTypeNumEvent,
-            SaveTypeNumberMappingsHandler  saveMappingsHandler, ExternalEvent saveMappingsEvent)
+            SaveTypeNumberMappingsHandler  saveMappingsHandler,  ExternalEvent saveMappingsEvent,
+            ImportTypeNumberMappingsHandler importMappingsHandler, ExternalEvent importMappingsEvent)
         {
             InitializeComponent();
 
@@ -85,8 +89,10 @@ namespace RB_TypeName.UI
             _previewTypeNumEvent  = previewTypeNumEvent;
             _applyTypeNumHandler  = applyTypeNumHandler;
             _applyTypeNumEvent    = applyTypeNumEvent;
-            _saveMappingsHandler  = saveMappingsHandler;
-            _saveMappingsEvent    = saveMappingsEvent;
+            _saveMappingsHandler   = saveMappingsHandler;
+            _saveMappingsEvent     = saveMappingsEvent;
+            _importMappingsHandler = importMappingsHandler;
+            _importMappingsEvent   = importMappingsEvent;
 
             _assignHandler.OnCompleted = (results, index) =>
                 Dispatcher.Invoke(() => ShowAssignResults(results, index));
@@ -124,6 +130,9 @@ namespace RB_TypeName.UI
                         }
                     }
                 });
+
+            _importMappingsHandler.OnCompleted = (upsertResult, err) =>
+                Dispatcher.Invoke(() => HandleImportCompleted(upsertResult, err));
 
             LoadSettings();
         }
@@ -680,7 +689,10 @@ namespace RB_TypeName.UI
                 return;
             }
 
-            _saveMappingsHandler.Rows     = _typeRows;
+            _saveMappingsHandler.Rows                          = _typeRows;
+            _saveMappingsHandler.SelectedTypeSourceParameterName = _currentTypeSourceParam;
+            _saveMappingsHandler.SelectedDisciplineCode          =
+                DisciplineCombo.SelectedItem as string ?? string.Empty;
             TypeNumberStatusText.Text     = "Saving mappings…";
             SaveMappingsButton.IsEnabled  = false;
             _saveMappingsEvent.Raise();
@@ -848,7 +860,8 @@ namespace RB_TypeName.UI
 
             bool overwrite = modeChoice.StartsWith("Override");
 
-            // Apply imported records to the current grid rows.
+            // Apply to visible grid rows optimistically (display only).
+            // The canonical write goes through ImportTypeNumberMappingsHandler.
             if (_typeRows != null)
             {
                 var importIndex = new Dictionary<string, TypeNumberMappingRecord>(
@@ -861,32 +874,90 @@ namespace RB_TypeName.UI
                     if (!importIndex.TryGetValue(row.MatchKey, out var rec)) continue;
                     if (!overwrite && row.HasSavedMapping)                   continue;
 
-                    row.ApplyL1CodeFromMapping(rec.L1Code, "Imported",
-                        hasSavedMapping: false);
+                    // Mark hasSavedMapping=true only after the handler confirms success;
+                    // use "Imported" status for now so the user sees pending state.
+                    row.ApplyL1CodeFromMapping(rec.L1Code, "Imported", hasSavedMapping: false);
                 }
 
                 TypeNumbersGrid.ItemsSource = null;
                 TypeNumbersGrid.ItemsSource = _typeRows;
             }
 
-            // Persist imported records to ExtStorage via the save handler.
-            // Build combined list: imported records override/merge with current row L1Codes.
-            var rowsToSave = _typeRows ?? new List<TypeNumberPreviewRow>();
-            _saveMappingsHandler.Rows = rowsToSave
-                .Where(r => !string.IsNullOrWhiteSpace(r.L1Code))
-                .ToList();
-            _saveMappingsEvent.Raise();
+            // Store pending import records for use in HandleImportCompleted.
+            _pendingImportRecords = records;
 
-            MessageBox.Show(
-                $"Import complete.\nImported: {records.Count}   Invalid: {result.Invalid}" +
-                $"   Conflicts: {result.Conflicts}",
-                "Import", MessageBoxButton.OK, MessageBoxImage.Information);
+            // Dispatch ALL imported records to Extensible Storage via the dedicated handler.
+            TypeNumberStatusText.Text = "Importing mappings…";
+            _importMappingsHandler.RecordsToImport                  = records;
+            _importMappingsHandler.OverwriteExisting                = overwrite;
+            _importMappingsHandler.SelectedTypeSourceParameterName  = _currentTypeSourceParam;
+            _importMappingsHandler.SelectedDisciplineCode           =
+                DisciplineCombo.SelectedItem as string ?? string.Empty;
+            _importMappingsEvent.Raise();
 
             if (result.Issues.Count > 0)
             {
                 TypeNumberWarningsText.Text         = string.Join("\n", result.Issues.Take(10));
                 TypeNumberWarningsBorder.Visibility = Visibility.Visible;
             }
+        }
+
+        // Stores the records currently being imported so HandleImportCompleted can update rows.
+        private List<TypeNumberMappingRecord> _pendingImportRecords;
+
+        private void HandleImportCompleted(TypeNumberMappingUpsertResult upsertResult, string err)
+        {
+            if (err != null)
+            {
+                TypeNumberStatusText.Text = "Import failed: " + err;
+                // Revert optimistic grid update — reset "Imported" rows back to Unmapped.
+                if (_typeRows != null && _pendingImportRecords != null)
+                {
+                    var importedKeys = new HashSet<string>(
+                        _pendingImportRecords.Select(r => r.MatchKey),
+                        StringComparer.OrdinalIgnoreCase);
+                    foreach (var row in _typeRows)
+                    {
+                        if (importedKeys.Contains(row.MatchKey)
+                            && row.MappingStatus == "Imported"
+                            && !row.HasSavedMapping)
+                        {
+                            row.ApplyL1CodeFromMapping(string.Empty, "Unmapped",
+                                hasSavedMapping: false);
+                        }
+                    }
+                }
+                _pendingImportRecords = null;
+                return;
+            }
+
+            // Import committed — mark visible matching rows as Saved.
+            if (_typeRows != null)
+            {
+                foreach (var row in _typeRows)
+                {
+                    if (row.MappingStatus == "Imported")
+                        row.ApplyL1CodeFromMapping(row.L1Code, "Saved", hasSavedMapping: true);
+                }
+                TypeNumbersGrid.ItemsSource = null;
+                TypeNumbersGrid.ItemsSource = _typeRows;
+            }
+
+            _pendingImportRecords = null;
+
+            TypeNumberStatusText.Text = upsertResult == null
+                ? "Import complete."
+                : $"Import complete. Added: {upsertResult.Added}   Updated: {upsertResult.Updated}" +
+                  $"   Skipped: {upsertResult.SkippedExisting}   Invalid: {upsertResult.Invalid}";
+
+            MessageBox.Show(
+                upsertResult == null
+                    ? "Import saved to model."
+                    : $"Import saved to model.\n\nAdded: {upsertResult.Added}" +
+                      $"\nUpdated: {upsertResult.Updated}" +
+                      $"\nSkipped (existing): {upsertResult.SkippedExisting}" +
+                      $"\nInvalid: {upsertResult.Invalid}",
+                "Import", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void ExportTypeNumbers_Click(object sender, RoutedEventArgs e)

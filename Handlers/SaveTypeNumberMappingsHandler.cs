@@ -9,21 +9,25 @@ using System.Linq;
 namespace RB_TypeName.Handlers
 {
     /// <summary>
-    /// Saves the current L1Code mappings from the Type Numbers preview rows
-    /// into Revit Extensible Storage.
+    /// Merges the current L1Code mappings from the Type Numbers preview rows
+    /// into Revit Extensible Storage (upsert — never deletes unrelated mappings).
+    /// Also persists the current Type Source + Discipline settings.
     ///
-    /// Inputs:  <see cref="Rows"/> — the current preview rows.
+    /// Inputs:  <see cref="Rows"/>, <see cref="SelectedTypeSourceParameterName"/>,
+    ///          <see cref="SelectedDisciplineCode"/>.
     /// Outputs: <see cref="OnCompleted"/> callback with (savedCount, errorMessage).
     ///          errorMessage is null on success.
     /// </summary>
     public class SaveTypeNumberMappingsHandler : IExternalEventHandler
     {
         public List<TypeNumberPreviewRow> Rows       { get; set; }
+        public string SelectedTypeSourceParameterName { get; set; } = "Revit Type Name";
+        public string SelectedDisciplineCode          { get; set; } = string.Empty;
         public Action<int, string>        OnCompleted { get; set; }
 
         public void Execute(UIApplication app)
         {
-            var doc     = app.ActiveUIDocument?.Document;
+            var doc = app.ActiveUIDocument?.Document;
             if (doc == null)
             {
                 OnCompleted?.Invoke(0, "No active document.");
@@ -54,9 +58,20 @@ namespace RB_TypeName.Handlers
             {
                 using var t = new Transaction(doc, "Save RBR Type Number Mappings");
                 t.Start();
-                TypeNumberMappingExtensibleStorageService.Save(doc, records);
+
+                // Upsert into existing storage — never replaces unrelated mappings.
+                var upsertResult = TypeNumberMappingExtensibleStorageService.Upsert(
+                    doc, records, overwrite: true);
+
+                // Persist current UI settings.
+                TypeNumberSettingsStorageService.Save(doc, new TypeNumberSettings
+                {
+                    SelectedTypeSourceParameterName = SelectedTypeSourceParameterName,
+                    SelectedDisciplineCode          = SelectedDisciplineCode,
+                });
+
                 t.Commit();
-                OnCompleted?.Invoke(records.Count, null);
+                OnCompleted?.Invoke(upsertResult.TotalChanged, null);
             }
             catch (Exception ex)
             {

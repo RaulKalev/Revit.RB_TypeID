@@ -67,6 +67,70 @@ namespace RB_TypeName.Services
             ds.SetEntity(entity);
         }
 
+        // ── Upsert (must be inside an active Transaction) ─────────────────────
+
+        /// <summary>
+        /// Merges <paramref name="incomingRecords"/> into the existing Extensible Storage database.
+        /// When <paramref name="overwrite"/> is <c>true</c>, existing records are replaced.
+        /// When <c>false</c>, existing keys are preserved unchanged.
+        ///
+        /// Notes and CreatedUtc are preserved from the existing record when the incoming
+        /// values are empty.
+        ///
+        /// MUST be called inside an active Revit <see cref="Transaction"/>.
+        /// </summary>
+        public static TypeNumberMappingUpsertResult Upsert(
+            Document doc,
+            IEnumerable<TypeNumberMappingRecord> incomingRecords,
+            bool overwrite)
+        {
+            var result   = new TypeNumberMappingUpsertResult();
+            var existing = Load(doc);
+
+            foreach (var incoming in incomingRecords ?? Enumerable.Empty<TypeNumberMappingRecord>())
+            {
+                if (incoming == null
+                    || string.IsNullOrWhiteSpace(incoming.MatchKey)
+                    || string.IsNullOrWhiteSpace(incoming.L1Code))
+                {
+                    result.Invalid++;
+                    continue;
+                }
+
+                incoming.UpdatedUtc = DateTime.UtcNow.ToString("o");
+
+                if (!existing.TryGetValue(incoming.MatchKey, out var old))
+                {
+                    // New key — always add.
+                    if (string.IsNullOrWhiteSpace(incoming.CreatedUtc))
+                        incoming.CreatedUtc = incoming.UpdatedUtc;
+
+                    existing[incoming.MatchKey] = incoming;
+                    result.Added++;
+                    continue;
+                }
+
+                if (!overwrite)
+                {
+                    result.SkippedExisting++;
+                    continue;
+                }
+
+                // Overwrite — preserve CreatedUtc and Notes when incoming values are empty.
+                if (string.IsNullOrWhiteSpace(incoming.CreatedUtc))
+                    incoming.CreatedUtc = old.CreatedUtc;
+
+                if (string.IsNullOrWhiteSpace(incoming.Notes))
+                    incoming.Notes = old.Notes;
+
+                existing[incoming.MatchKey] = incoming;
+                result.Updated++;
+            }
+
+            Save(doc, existing.Values);
+            return result;
+        }
+
         // ── Apply stored mappings to preview rows ─────────────────────────────
 
         public static void ApplyToRows(IEnumerable<TypeNumberPreviewRow> rows,

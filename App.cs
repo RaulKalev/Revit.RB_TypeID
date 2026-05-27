@@ -29,6 +29,9 @@ namespace RB_TypeName
         public static SaveTypeNumberMappingsHandler  SaveMappingsHandler           { get; private set; }
         public static ExternalEvent                  SaveMappingsExternalEvent     { get; private set; }
 
+        public static ImportTypeNumberMappingsHandler ImportMappingsHandler         { get; private set; }
+        public static ExternalEvent                   ImportMappingsExternalEvent   { get; private set; }
+
         private RibbonPanel ribbonPanel;
 
         public Result OnStartup(UIControlledApplication application)
@@ -54,6 +57,9 @@ namespace RB_TypeName
             SaveMappingsHandler           = new SaveTypeNumberMappingsHandler();
             SaveMappingsExternalEvent     = ExternalEvent.Create(SaveMappingsHandler);
 
+            ImportMappingsHandler         = new ImportTypeNumberMappingsHandler();
+            ImportMappingsExternalEvent   = ExternalEvent.Create(ImportMappingsHandler);
+
             const string tabName = "RK Tools";
 
             try { application.CreateRibbonTab(tabName); }
@@ -77,6 +83,7 @@ namespace RB_TypeName
             PreviewTypeNumbersExternalEvent?.Dispose();
             ApplyTypeNumbersExternalEvent?.Dispose();
             SaveMappingsExternalEvent?.Dispose();
+            ImportMappingsExternalEvent?.Dispose();
             return Result.Succeeded;
         }
     }
