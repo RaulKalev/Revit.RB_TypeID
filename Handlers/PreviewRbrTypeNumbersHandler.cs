@@ -54,14 +54,12 @@ namespace RB_TypeName.Handlers
                     {
                         row.Status             = "Missing L1 code";
                         row.ProposedTypeNumber = string.Empty;
-                        row.IsSelected         = false;
                         continue;
                     }
                     if (!Regex.IsMatch(userL1, @"^[A-Z0-9_\-]+$"))
                     {
                         row.Status             = "Invalid L1 code (use A-Z, 0-9, - or _)";
                         row.ProposedTypeNumber = string.Empty;
-                        row.IsSelected         = false;
                         continue;
                     }
 
@@ -101,7 +99,6 @@ namespace RB_TypeName.Handlers
 
                     row.ProposedTypeNumber = proposed;
                     row.Status             = "Ready";
-                    row.IsSelected         = true;
                 }
             }
             catch (Exception ex)
