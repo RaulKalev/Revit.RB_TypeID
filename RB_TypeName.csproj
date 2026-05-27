@@ -39,7 +39,7 @@
   </ItemGroup>
 
 
-  <!-- Deploy to AppLoader watched folder (net48 only) -->
+  <!-- Deploy to AppLoader watched folder (Revit 2024 / net48) -->
   <Target Name="DeployToAppLoader" AfterTargets="Build" Condition="'$(TargetFramework)' == 'net48'">
     <PropertyGroup>
       <AppLoaderTarget>C:\ProgramData\Autodesk\Revit\Addins\2024\Tests\RKTools\RB_TypeName\Debug\net48\</AppLoaderTarget>
@@ -48,6 +48,17 @@
     <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll"
           DestinationFolder="$(AppLoaderTarget)"
           SkipUnchangedFiles="false" />
+  </Target>
+
+  <!-- Deploy to Dropbox 2026 folder (Revit 2026 / net8.0-windows) -->
+  <Target Name="DeployToDropbox2026" AfterTargets="Build" Condition="'$(TargetFramework)' == 'net8.0-windows'">
+    <PropertyGroup>
+      <Dropbox2026>C:\Users\mibil\EULE Dropbox\0_EULE  Team folder (kogu kollektiiv)\02_EULE REVIT TEMPLATE\099-scriptid\Pluginad\2026\</Dropbox2026>
+    </PropertyGroup>
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll"
+          DestinationFolder="$(Dropbox2026)"
+          SkipUnchangedFiles="false"
+          Condition="Exists('$(Dropbox2026)')" />
   </Target>
 
 </Project>
