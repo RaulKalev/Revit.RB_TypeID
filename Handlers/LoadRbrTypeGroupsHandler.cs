@@ -95,7 +95,7 @@ namespace RB_TypeName.Handlers
 
                     // Skip view-specific elements (detail components, detail lines,
                     // filled regions, repeating details, etc.).
-                    if (element.ViewSpecificId != ElementId.InvalidElementId) continue;
+                    if (element.OwnerViewId != ElementId.InvalidElementId) continue;
 
                     // Skip annotation/2D elements and internal Revit categories.
                     // Only CategoryType.Model represents placed 3D model elements.
