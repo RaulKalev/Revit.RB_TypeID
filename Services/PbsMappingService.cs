@@ -14,7 +14,63 @@ namespace RB_TypeName.Services
     /// </summary>
     public static class PbsMappingService
     {
-        // Primary entry point (configurable)
+        // ── PrCode header candidates (auto-detection) ────────────────────────
+
+        private static readonly string[] PrCodeHeaderCandidates =
+        {
+            "RBR_Pr_Code", "RBR-Pr_Code", "RBR_PrCode", "RBR-PrCode", "Pr_Code",
+        };
+
+        // ── PrCode rows load entry point ─────────────────────────────────────
+
+        /// <summary>
+        /// Loads all PBS rows that contain a PrCode value, building a list suitable
+        /// for <see cref="PbsPrCodeLookupService"/>.
+        /// </summary>
+        public static (bool Success, string Error, List<PbsPrCodeRow> Rows)
+            LoadPrCodeRows(PbsExcelSourceSettings settings)
+        {
+            if (settings == null)
+                return (false, "PBS Excel settings are missing.", null);
+
+            if (string.IsNullOrWhiteSpace(settings.ExcelPath))
+                return (false, "PBS Excel file path has not been selected.", null);
+
+            if (!File.Exists(settings.ExcelPath))
+                return (false, "PBS Excel file was not found:\n" + settings.ExcelPath, null);
+
+            try
+            {
+                using var zip = ZipFile.OpenRead(settings.ExcelPath);
+
+                var sharedStrings = ReadSharedStrings(zip);
+                var worksheetPath = FindWorksheetPath(zip, settings.SheetName);
+
+                if (worksheetPath == null)
+                    return (false,
+                        "Worksheet '" + settings.SheetName + "' was not found in the selected Excel file.",
+                        null);
+
+                var (rows, _, error) = ReadPrCodeRows(zip, worksheetPath, sharedStrings, settings);
+
+                if (error != null)
+                    return (false, error, null);
+
+                return (true, null, rows);
+            }
+            catch (IOException ex)
+            {
+                return (false,
+                    "PBS Excel file could not be read. It may be locked or unavailable.\n" + ex.Message,
+                    null);
+            }
+            catch (Exception ex)
+            {
+                return (false, "Failed to load PBS Excel file.\n" + ex.Message, null);
+            }
+        }
+
+        // ── Primary entry point (configurable)
 
         /// <summary>
         /// Loads PBS mappings using the provided settings.
@@ -217,5 +273,120 @@ namespace RB_TypeName.Services
 
         private static int LetterToIndex(string columnLetter)
             => ParseColumnIndex(columnLetter?.Trim().ToUpperInvariant());
+
+        /// <summary>Converts a 1-based column index back to an Excel column letter (e.g. 18 → "R").</summary>
+        private static string IndexToLetter(int colIndex)
+        {
+            var result = string.Empty;
+            while (colIndex > 0)
+            {
+                int mod = (colIndex - 1) % 26;
+                result   = (char)('A' + mod) + result;
+                colIndex = (colIndex - 1) / 26;
+            }
+            return result;
+        }
+
+        // ── PrCode rows reader ───────────────────────────────────────────────
+
+        private static (List<PbsPrCodeRow> Rows, string ColumnFound, string Error)
+            ReadPrCodeRows(ZipArchive zip, string worksheetPath,
+                string[] sharedStrings, PbsExcelSourceSettings settings)
+        {
+            var entry = zip.GetEntry(worksheetPath);
+            if (entry == null) return (null, null, "Worksheet entry not found in archive.");
+
+            int colR = LetterToIndex(settings.DisciplineCodeColumn);
+            int colS = LetterToIndex(settings.ObjectCodeColumn);
+
+            using var stream = entry.Open();
+            var doc = XDocument.Load(stream);
+            XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+
+            var allRows = doc.Root
+                .Element(ns + "sheetData")?
+                .Elements(ns + "row")
+                .ToList()
+                ?? new List<XElement>();
+
+            // ── Locate PrCode column ─────────────────────────────────────────
+            int    colPrCode    = 0;
+            string columnFound  = null;
+
+            if (!string.IsNullOrWhiteSpace(settings.PbsPrCodeColumn))
+            {
+                colPrCode   = LetterToIndex(settings.PbsPrCodeColumn);
+                columnFound = settings.PbsPrCodeColumn.Trim().ToUpperInvariant();
+            }
+            else
+            {
+                // Scan header rows for a matching header candidate.
+                foreach (var headerRow in allRows)
+                {
+                    int.TryParse(headerRow.Attribute("r")?.Value, out int rn);
+                    if (rn <= 0 || rn > settings.HeaderRow) continue;
+
+                    var cells = headerRow.Elements(ns + "c")
+                        .ToDictionary(c => ParseColumnIndex(c.Attribute("r")?.Value));
+
+                    foreach (var kv in cells)
+                    {
+                        string val = GetCellValue(
+                            new Dictionary<int, XElement> { { kv.Key, kv.Value } },
+                            kv.Key, sharedStrings);
+
+                        if (val == null) continue;
+                        val = val.Trim();
+
+                        if (PrCodeHeaderCandidates.Any(h =>
+                            string.Equals(h, val, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            colPrCode   = kv.Key;
+                            columnFound = IndexToLetter(kv.Key);
+                            break;
+                        }
+                    }
+                    if (colPrCode > 0) break;
+                }
+            }
+
+            if (colPrCode == 0)
+                return (null, null,
+                    "PBS Excelist ei leitud RBR_Pr_Code veergu.\n" +
+                    "Palun kontrolli faili või määra veerg seadetes käsitsi.");
+
+            // ── Read data rows ───────────────────────────────────────────────
+            var result = new List<PbsPrCodeRow>();
+
+            foreach (var row in allRows)
+            {
+                int.TryParse(row.Attribute("r")?.Value, out int rowNum);
+                if (rowNum > 0 && rowNum <= settings.HeaderRow) continue;
+
+                var cells = row.Elements(ns + "c")
+                    .ToDictionary(c => ParseColumnIndex(c.Attribute("r")?.Value));
+
+                string prCodeRaw = GetCellValue(cells, colPrCode, sharedStrings);
+                if (string.IsNullOrWhiteSpace(prCodeRaw)) continue;
+
+                string rVal = GetCellValue(cells, colR, sharedStrings);
+                string sVal = GetCellValue(cells, colS, sharedStrings);
+
+                string normalized = prCodeRaw.Trim()
+                    .Replace("\u00A0", " ")
+                    .ToUpperInvariant();
+
+                result.Add(new PbsPrCodeRow
+                {
+                    RowNumber        = rowNum,
+                    PrCodeRaw        = prCodeRaw.Trim(),
+                    PrCodeNormalized = normalized,
+                    ObjectIdPart1    = rVal?.Trim().ToUpperInvariant() ?? string.Empty,
+                    ObjectIdPart2    = sVal?.Trim().ToUpperInvariant() ?? string.Empty,
+                });
+            }
+
+            return (result, columnFound, null);
+        }
     }
 }

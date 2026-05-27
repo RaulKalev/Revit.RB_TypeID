@@ -20,6 +20,20 @@ namespace RB_TypeName.Models
         public string SecondaryObjectCodeColumn  { get; set; } = "T";
         public string DescriptionColumn          { get; set; } = "K";
 
+        // ── PrCode lookup settings ────────────────────────────────────────────
+
+        /// <summary>Use RBR_Pr_Code on elements as the primary source for PBS row lookup.</summary>
+        public bool   UseRbrPrCodeLookup      { get; set; } = true;
+
+        /// <summary>Fall back to the manually selected PBS mapping when PrCode lookup fails.</summary>
+        public bool   UseManualMappingFallback { get; set; } = false;
+
+        /// <summary>
+        /// Override column letter for the PrCode column in the PBS sheet.
+        /// Leave empty to auto-detect from header row.
+        /// </summary>
+        public string PbsPrCodeColumn         { get; set; } = string.Empty;
+
         // ── JSON persistence ─────────────────────────────────────────────────
 
         public static PbsExcelSourceSettings LoadFromFile(string path)
@@ -37,6 +51,9 @@ namespace RB_TypeName.Models
                 s.ObjectCodeColumn          = ReadString(json, "ObjectCodeColumn")          ?? s.ObjectCodeColumn;
                 s.SecondaryObjectCodeColumn = ReadString(json, "SecondaryObjectCodeColumn") ?? s.SecondaryObjectCodeColumn;
                 s.DescriptionColumn         = ReadString(json, "DescriptionColumn")         ?? s.DescriptionColumn;
+                s.UseRbrPrCodeLookup        = ReadBool  (json, "UseRbrPrCodeLookup",   s.UseRbrPrCodeLookup);
+                s.UseManualMappingFallback  = ReadBool  (json, "UseManualMappingFallback", s.UseManualMappingFallback);
+                s.PbsPrCodeColumn           = ReadString(json, "PbsPrCodeColumn")           ?? s.PbsPrCodeColumn;
             }
             catch { /* return defaults on any parse error */ }
 
@@ -56,7 +73,10 @@ namespace RB_TypeName.Models
                 sb.AppendLine($"  \"DisciplineCodeColumn\": {Js(DisciplineCodeColumn)},");
                 sb.AppendLine($"  \"ObjectCodeColumn\": {Js(ObjectCodeColumn)},");
                 sb.AppendLine($"  \"SecondaryObjectCodeColumn\": {Js(SecondaryObjectCodeColumn)},");
-                sb.AppendLine($"  \"DescriptionColumn\": {Js(DescriptionColumn)}");
+                sb.AppendLine($"  \"DescriptionColumn\": {Js(DescriptionColumn)},");
+                sb.AppendLine($"  \"UseRbrPrCodeLookup\": {(UseRbrPrCodeLookup ? "true" : "false")},");
+                sb.AppendLine($"  \"UseManualMappingFallback\": {(UseManualMappingFallback ? "true" : "false")},");
+                sb.AppendLine($"  \"PbsPrCodeColumn\": {Js(PbsPrCodeColumn)}");
                 sb.AppendLine("}");
                 File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
             }
@@ -88,5 +108,11 @@ namespace RB_TypeName.Models
             var m = Regex.Match(json, $@"""{Regex.Escape(key)}""\s*:\s*(-?\d+)");
             return m.Success && int.TryParse(m.Groups[1].Value, out int v) ? v : fallback;
         }
-    }
+        private static bool ReadBool(string json, string key, bool fallback)
+        {
+            var m = Regex.Match(json,
+                $@"""{Regex.Escape(key)}""\ s*:\s*(true|false)");
+            if (!m.Success) return fallback;
+            return m.Groups[1].Value == "true";
+        }    }
 }

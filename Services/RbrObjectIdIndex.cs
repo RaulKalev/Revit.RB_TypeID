@@ -30,7 +30,7 @@ namespace RB_TypeName.Services
 
             foreach (var element in collector)
             {
-                var param = element.LookupParameter("RBR-Object_ID");
+                var param = RevitParameterResolver.FindObjectIdParameter(element);
                 if (param == null) continue;
 
                 string val = param.AsString();
@@ -50,6 +50,10 @@ namespace RB_TypeName.Services
         /// </summary>
         public int GetNextNumber(string prefix)
             => _maxNumbers.TryGetValue(prefix, out int max) ? max + 1 : 1;
+
+        /// <summary>Returns true if the exact ID value is already tracked.</summary>
+        public bool Contains(string id)
+            => !string.IsNullOrWhiteSpace(id) && _allIds.Contains(id);
 
         /// <summary>
         /// Registers a newly assigned ID so that subsequent elements in the same

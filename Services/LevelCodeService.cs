@@ -19,6 +19,23 @@ namespace RB_TypeName.Services
             return !string.IsNullOrEmpty(levelCode);
         }
 
+        /// <summary>
+        /// Tries to resolve both the raw level name and the extracted level code.
+        /// Returns false if no level can be resolved.
+        /// </summary>
+        public static bool TryGetLevelAndCode(Element element, Document doc,
+            out string levelName, out string levelCode)
+        {
+            levelName = null;
+            levelCode = null;
+            var level = ResolveLevel(element, doc, depth: 0);
+            if (level == null) return false;
+
+            levelName = level.Name;
+            levelCode = ExtractLevelCode(level.Name);
+            return !string.IsNullOrEmpty(levelCode);
+        }
+
         // ── Level resolution (priority order from plan) ─────────────────────
 
         private static Level ResolveLevel(Element element, Document doc, int depth)

@@ -26,11 +26,12 @@ namespace RB_TypeName.Services
                 var result = new RbrIdAssignmentResult { ElementId = elementId };
 
                 // ── Locate the parameter ────────────────────────────────────
-                var idParam = element.LookupParameter("RBR-Object_ID");
+                var idParam = RevitParameterResolver.FindObjectIdParameter(element);
                 if (idParam == null)
                 {
                     result.Status  = "MissingParameter";
-                    result.Message = "Parameter 'RBR-Object_ID' not found on element.";
+                    result.Message = "Object ID parameter not found on element (tried: "
+                        + string.Join(", ", RevitParameterResolver.ObjectIdParameterNames) + ").";
                     results.Add(result);
                     continue;
                 }

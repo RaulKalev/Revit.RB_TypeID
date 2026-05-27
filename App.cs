@@ -8,15 +8,27 @@ namespace RB_TypeName
     [AppLoader]
     public class App : IExternalApplication
     {
-        public static AssignRbrObjectIdsHandler AssignHandler    { get; private set; }
-        public static ExternalEvent             AssignExternalEvent { get; private set; }
+        public static AssignRbrObjectIdsHandler  AssignHandler        { get; private set; }
+        public static ExternalEvent              AssignExternalEvent  { get; private set; }
+
+        public static PreviewRbrObjectIdsHandler PreviewHandler       { get; private set; }
+        public static ExternalEvent              PreviewExternalEvent { get; private set; }
+
+        public static ApplyRbrObjectIdsHandler   ApplyHandler         { get; private set; }
+        public static ExternalEvent              ApplyExternalEvent   { get; private set; }
 
         private RibbonPanel ribbonPanel;
 
         public Result OnStartup(UIControlledApplication application)
         {
-            AssignHandler       = new AssignRbrObjectIdsHandler();
-            AssignExternalEvent = ExternalEvent.Create(AssignHandler);
+            AssignHandler        = new AssignRbrObjectIdsHandler();
+            AssignExternalEvent  = ExternalEvent.Create(AssignHandler);
+
+            PreviewHandler       = new PreviewRbrObjectIdsHandler();
+            PreviewExternalEvent = ExternalEvent.Create(PreviewHandler);
+
+            ApplyHandler         = new ApplyRbrObjectIdsHandler();
+            ApplyExternalEvent   = ExternalEvent.Create(ApplyHandler);
 
             const string tabName = "RK Tools";
 
@@ -35,6 +47,8 @@ namespace RB_TypeName
         public Result OnShutdown(UIControlledApplication application)
         {
             AssignExternalEvent?.Dispose();
+            PreviewExternalEvent?.Dispose();
+            ApplyExternalEvent?.Dispose();
             return Result.Succeeded;
         }
     }

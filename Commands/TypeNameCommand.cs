@@ -48,7 +48,10 @@ namespace RB_TypeName.Commands
             uiApp.Idling -= OnRevitIdling;
             _pendingShow = false;
 
-            _window = new UI.RbrObjectIdWindow(App.AssignHandler, App.AssignExternalEvent);
+                _window = new UI.RbrObjectIdWindow(
+                    App.AssignHandler,  App.AssignExternalEvent,
+                    App.PreviewHandler, App.PreviewExternalEvent,
+                    App.ApplyHandler,   App.ApplyExternalEvent);
             _window.Closed += (s, args) => _window = null;
             _window.Show();
         }
