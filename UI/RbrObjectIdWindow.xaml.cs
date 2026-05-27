@@ -625,7 +625,7 @@ namespace RB_TypeName.UI
             _loadTypesHandler.SettingsFolder          = SettingsFolder;
 
             TypeNumbersGrid.ItemsSource              = null;
-            TypeNumberSummaryText.Text               = "Loading types from selection…";
+            TypeNumberSummaryText.Text               = "Loading all types from document…";
             TypeNumberWarningsBorder.Visibility      = Visibility.Collapsed;
             SaveMappingsButton.IsEnabled             = false;
             PreviewTypeNumbersButton.IsEnabled       = false;
@@ -676,31 +676,26 @@ namespace RB_TypeName.UI
             }
             else
             {
-                int selCount   = _loadTypesHandler.SelectionCount;
                 int grpCount   = _loadTypesHandler.TypeGroupCount;
                 int filtered   = _loadTypesHandler.FilteredOutCount;
+                int scanned    = _loadTypesHandler.ScannedInstanceCount;
                 string discFilter = _loadTypesHandler.SelectedDiscipline;
 
                 string msg;
-                if (selCount == 0)
+                if (grpCount == 0)
                 {
-                    msg = "No selection in Revit. Select element instances in the view, " +
-                          "then click 'Load Types from Selection'.";
-                }
-                else if (grpCount == 0)
-                {
-                    msg = $"Selected {selCount} element(s), but none have an associated " +
-                          "element type (e.g. lines, rooms, model groups are skipped).";
+                    msg = $"Scanned {scanned} instance(s) in the document but found no element types. " +
+                          "Check that the Revit model contains placed instances (walls, doors, floors, etc.)";
                 }
                 else if (filtered > 0 && !string.IsNullOrWhiteSpace(discFilter))
                 {
-                    msg = $"Selected {selCount} element(s) in {grpCount} type group(s), " +
+                    msg = $"Found {grpCount} type group(s) across {scanned} instance(s), " +
                           $"but all {filtered} were filtered out by Discipline = '{discFilter}'. " +
-                          "Try changing Discipline to '(All)'.";
+                          "Try changing Discipline to '(All)'.";  
                 }
                 else
                 {
-                    msg = $"Selected {selCount} element(s) in {grpCount} type group(s), " +
+                    msg = $"Scanned {scanned} instance(s) in {grpCount} type group(s), " +
                           "but no rows were produced.";
                 }
                 TypeNumberSummaryText.Text = msg;

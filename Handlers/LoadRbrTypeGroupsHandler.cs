@@ -46,8 +46,8 @@ namespace RB_TypeName.Handlers
         /// <summary>Settings restored from Extensible Storage (null if none saved).</summary>
         public TypeNumberSettings RestoredSettings { get; private set; }
 
-        /// <summary>Number of elements in the Revit selection at the time of execution.</summary>
-        public int SelectionCount { get; private set; }
+        /// <summary>Total element instances scanned from the document.</summary>
+        public int ScannedInstanceCount { get; private set; }
 
         /// <summary>Number of unique element types found across the selection.</summary>
         public int TypeGroupCount { get; private set; }
@@ -65,16 +65,14 @@ namespace RB_TypeName.Handlers
         public void Execute(UIApplication app)
         {
             var result = new List<TypeNumberPreviewRow>();
-            SelectionCount   = 0;
-            TypeGroupCount   = 0;
-            FilteredOutCount = 0;
+            ScannedInstanceCount = 0;
+            TypeGroupCount       = 0;
+            FilteredOutCount     = 0;
 
             try
             {
-                var uidoc       = app.ActiveUIDocument;
-                var doc         = uidoc.Document;
-                var selectedIds = uidoc.Selection.GetElementIds().ToList();
-                SelectionCount  = selectedIds.Count;
+                var uidoc = app.ActiveUIDocument;
+                var doc   = uidoc.Document;
 
                 // Load settings from Extensible Storage.
                 // Settings are saved only when the user explicitly triggers Save/Import/Apply.
@@ -82,20 +80,15 @@ namespace RB_TypeName.Handlers
 
                 string docPath = doc.PathName ?? doc.Title ?? "default";
 
-                if (selectedIds.Count == 0)
-                {
-                    DiscoveredParameterNames = DefaultParamNames();
-                    OnCompleted?.Invoke(result, docPath, DiscoveredParameterNames);
-                    return;
-                }
-
-                // ── Group element instances by ElementType.Id ─────────────────
+                // ── Group ALL element instances in the document by ElementType.Id ──
                 var groups = new Dictionary<string, List<Element>>();
 
-                foreach (var id in selectedIds)
+                var collector = new FilteredElementCollector(doc)
+                    .WhereElementIsNotElementType();
+
+                foreach (var element in collector)
                 {
-                    var element = doc.GetElement(id);
-                    if (element == null) continue;
+                    ScannedInstanceCount++;
 
                     var typeId = element.GetTypeId();
                     if (typeId == null || typeId == ElementId.InvalidElementId) continue;

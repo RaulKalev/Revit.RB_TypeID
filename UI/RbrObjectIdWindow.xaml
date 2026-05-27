@@ -260,7 +260,7 @@
                         <!-- Button row -->
                         <StackPanel Orientation="Horizontal">
                             <Button x:Name="LoadTypesButton"
-                                    Content="Load Types from Selection"
+                                    Content="Load All Types"
                                     Width="170" Height="26"
                                     Margin="0,0,6,0"
                                     FontSize="12"
