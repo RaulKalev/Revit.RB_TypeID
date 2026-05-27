@@ -50,6 +50,9 @@ namespace RB_TypeName.UI
         private readonly ImportTypeNumberMappingsHandler _importMappingsHandler;
         private readonly ExternalEvent                   _importMappingsEvent;
 
+        private readonly ExportTypeNumberMappingsHandler _exportMappingsHandler;
+        private readonly ExternalEvent                   _exportMappingsEvent;
+
         // ── State ────────────────────────────────────────────────────────────
 
         private PbsExcelSourceSettings  _settings;
@@ -72,7 +75,8 @@ namespace RB_TypeName.UI
             PreviewRbrTypeNumbersHandler   previewTypeNumHandler, ExternalEvent previewTypeNumEvent,
             ApplyRbrTypeNumbersHandler     applyTypeNumHandler, ExternalEvent applyTypeNumEvent,
             SaveTypeNumberMappingsHandler  saveMappingsHandler,  ExternalEvent saveMappingsEvent,
-            ImportTypeNumberMappingsHandler importMappingsHandler, ExternalEvent importMappingsEvent)
+            ImportTypeNumberMappingsHandler importMappingsHandler, ExternalEvent importMappingsEvent,
+            ExportTypeNumberMappingsHandler exportMappingsHandler, ExternalEvent exportMappingsEvent)
         {
             InitializeComponent();
 
@@ -93,6 +97,8 @@ namespace RB_TypeName.UI
             _saveMappingsEvent     = saveMappingsEvent;
             _importMappingsHandler = importMappingsHandler;
             _importMappingsEvent   = importMappingsEvent;
+            _exportMappingsHandler = exportMappingsHandler;
+            _exportMappingsEvent   = exportMappingsEvent;
 
             _assignHandler.OnCompleted = (results, index) =>
                 Dispatcher.Invoke(() => ShowAssignResults(results, index));
@@ -133,6 +139,9 @@ namespace RB_TypeName.UI
 
             _importMappingsHandler.OnCompleted = (upsertResult, err) =>
                 Dispatcher.Invoke(() => HandleImportCompleted(upsertResult, err));
+
+            _exportMappingsHandler.OnCompleted = (success, err) =>
+                Dispatcher.Invoke(() => HandleExportMappingCompleted(success, err));
 
             LoadSettings();
         }
@@ -638,14 +647,22 @@ namespace RB_TypeName.UI
             PopulateTypeSourceCombo(paramNames);
 
             // Restore the TypeSource setting saved in ExtStorage (via RestoredSettings).
-            if (_loadTypesHandler.RestoredSettings != null)
+            // If the saved source differs from the one used to build these rows,
+            // warn the user that another Load Types is needed.
+            string usedParam  = _currentTypeSourceParam;
+            string savedParam = _loadTypesHandler.RestoredSettings?.SelectedTypeSourceParameterName;
+
+            if (!string.IsNullOrWhiteSpace(savedParam))
             {
-                string savedParam = _loadTypesHandler.RestoredSettings
-                    .SelectedTypeSourceParameterName;
-                if (!string.IsNullOrWhiteSpace(savedParam))
+                int idx = TypeSourceCombo.Items.IndexOf(savedParam);
+                if (idx >= 0) TypeSourceCombo.SelectedIndex = idx;
+
+                if (!string.Equals(savedParam, usedParam, StringComparison.OrdinalIgnoreCase))
                 {
-                    int idx = TypeSourceCombo.Items.IndexOf(savedParam);
-                    if (idx >= 0) TypeSourceCombo.SelectedIndex = idx;
+                    _currentTypeSourceParam = savedParam;
+                    TypeNumberStatusText.Text =
+                        $"Type source restored to '{savedParam}'. " +
+                        "Click Load Types again to rebuild rows with this source.";
                 }
             }
 
@@ -758,6 +775,9 @@ namespace RB_TypeName.UI
 
             _applyTypeNumHandler.RowsToApply  = toApply;
             _applyTypeNumHandler.LedgerFolder = SettingsFolder;
+            _applyTypeNumHandler.SelectedTypeSourceParameterName = _currentTypeSourceParam;
+            _applyTypeNumHandler.SelectedDisciplineCode          =
+                DisciplineCombo.SelectedItem as string ?? string.Empty;
 
             TypeNumberSummaryText.Text       = "Applying type numbers…";
             ApplyTypeNumbersButton.IsEnabled = false;
@@ -807,21 +827,37 @@ namespace RB_TypeName.UI
             };
             if (dlg.ShowDialog() != true) return;
 
-            // Notes come from the ExtStorage blob.  We don't have direct access here
-            // (ExtStorage requires a Revit API call), so pass an empty dictionary —
-            // Notes will be empty in the export but the L1Code column is already on the rows.
-            var existingMappings = new Dictionary<string, TypeNumberMappingRecord>(
-                StringComparer.OrdinalIgnoreCase);
+            // Dispatch through the export handler so it can read stored Notes
+            // from Extensible Storage (requires the Revit Document on the API thread).
+            _pendingExportPath                  = dlg.FileName;
+            _exportMappingsHandler.Rows         = _typeRows;
+            _exportMappingsHandler.ExportMode   = exportMode;
+            _exportMappingsHandler.OutputPath   = dlg.FileName;
+            TypeNumberStatusText.Text           = "Exporting mapping Excel…";
+            ExportMappingButton.IsEnabled       = false;
+            _exportMappingsEvent.Raise();
+        }
 
-            var (success, error) = TypeNumberMappingExcelService.Export(
-                _typeRows, exportMode, dlg.FileName, existingMappings);
+        // Stores the path for the in-flight export so the completion handler can show it.
+        private string _pendingExportPath;
+
+        private void HandleExportMappingCompleted(bool success, string error)
+        {
+            string path = _pendingExportPath;
+            _pendingExportPath = null;
+            ExportMappingButton.IsEnabled = _typeRows != null && _typeRows.Count > 0;
 
             if (!success)
+            {
+                TypeNumberStatusText.Text = "Export failed.";
                 MessageBox.Show("Export failed:\n" + error,
                     "Export Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            else
-                MessageBox.Show("Exported to:\n" + dlg.FileName,
-                    "Export", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            TypeNumberStatusText.Text = "Mapping Excel exported.";
+            MessageBox.Show("Exported to:\n" + path,
+                "Export", MessageBoxButton.OK, MessageBoxImage.Information);
         }
 
         private void ImportMapping_Click(object sender, RoutedEventArgs e)

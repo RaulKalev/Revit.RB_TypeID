@@ -21,6 +21,12 @@ namespace RB_TypeName.Handlers
         public List<TypeNumberPreviewRow> RowsToApply { get; set; }
         public string                     LedgerFolder { get; set; }
 
+        /// <summary>Current TypeSource setting — persisted to Extensible Storage during apply.</summary>
+        public string SelectedTypeSourceParameterName { get; set; } = "Revit Type Name";
+
+        /// <summary>Current Discipline setting — persisted to Extensible Storage during apply.</summary>
+        public string SelectedDisciplineCode { get; set; } = string.Empty;
+
         // ── Output callback — dispatched to UI thread ─────────────────────────
 
         public Action<int, int, List<string>> OnCompleted { get; set; }
@@ -115,6 +121,13 @@ namespace RB_TypeName.Handlers
                     row.Status = "Assigned";
                     assigned++;
                 }
+
+                // Persist current UI settings alongside the apply transaction.
+                TypeNumberSettingsStorageService.Save(doc, new TypeNumberSettings
+                {
+                    SelectedTypeSourceParameterName = SelectedTypeSourceParameterName,
+                    SelectedDisciplineCode          = SelectedDisciplineCode,
+                });
 
                 tx.Commit();
 

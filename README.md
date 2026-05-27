@@ -55,7 +55,7 @@ The toolbar in the Type Numbers tab includes two additional buttons for bulk L1 
 1. Click **Export Mapping…** after loading types.
 2. Choose export scope: **All rows**, **Only unmapped rows**, or **Only mapped rows**.
 3. Save the generated `.xlsx` file (`RBR_TypeNumber_Mapping_<timestamp>.xlsx`).
-4. Open the file in Excel — columns A–H are read-only reference data; column **I (RBR_ObjectID_Character_Level1)** and column **M (Notes)** are the only user-editable fields.
+4. Open the file in Excel. Columns A–D and F–M are reference data. Column **E (`RBR_ObjectID_Character_Level1`)** and column **N (`Notes`)** are intended for user editing.
 
 ### Import Mapping…
 
@@ -90,15 +90,21 @@ Example level name extraction: `B01_Kelder` → `B01`, `L01_1 korrus` → `L01`.
 
 ## Type Number format
 
-The format is driven by the template in the PBS sheet (e.g. `CAM-01ZZZZ`):
+The PBS template (for example `CAM-01ZZZZ`) is used only to prefill the L1 Code suggestion. The **final generated prefix always comes from the user-entered (or saved) `L1 Code`** — the PBS template is never used as the prefix on its own.
 
 ```
-CAM-010001
+CAM-020001
 │      └── Running number (4 digits, substitutes ZZZZ placeholder)
-└───────── Prefix (everything before ZZZZ)
+└───────── Prefix (user/saved L1 Code, e.g. CAM-02)
 ```
 
-When no template is present, the format is `<L1Code>-<0001>`.
+Example:
+
+- PBS template: `CAM-01ZZZZ`
+- User L1 Code: `CAM-02`
+- Generated value: `CAM-020001`
+
+When no PBS template is present, the format is `<L1Code>-<0001>`.
 
 ## Current limitations
 
