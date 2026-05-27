@@ -35,18 +35,36 @@ namespace RB_TypeName.UI
         private readonly ApplyRbrObjectIdsHandler   _applyHandler;
         private readonly ExternalEvent              _applyEvent;
 
+        private readonly LoadRbrTypeGroupsHandler       _loadTypesHandler;
+        private readonly ExternalEvent                  _loadTypesEvent;
+
+        private readonly PreviewRbrTypeNumbersHandler   _previewTypeNumHandler;
+        private readonly ExternalEvent                  _previewTypeNumEvent;
+
+        private readonly ApplyRbrTypeNumbersHandler     _applyTypeNumHandler;
+        private readonly ExternalEvent                  _applyTypeNumEvent;
+
         // ── State ────────────────────────────────────────────────────────────
 
         private PbsExcelSourceSettings  _settings;
         private List<ObjectIdPreviewRow> _previewRows;
         private bool _isLoadingSettings;
 
+        private List<TypeNumberPreviewRow>            _typeRows;
+        private Dictionary<string, PbsTypeNumberRow>  _typeNumberLookup;
+        private PbsPrCodeLookupService                _prCodeLookupForTypeNumbers;
+        private TypeNumberMappingStorageService        _mappingStorage;
+        private string                                 _currentDocPath = string.Empty;
+
         // ── Constructor ──────────────────────────────────────────────────────
 
         public RbrObjectIdWindow(
-            AssignRbrObjectIdsHandler  assignHandler,  ExternalEvent assignEvent,
-            PreviewRbrObjectIdsHandler previewHandler, ExternalEvent previewEvent,
-            ApplyRbrObjectIdsHandler   applyHandler,   ExternalEvent applyEvent)
+            AssignRbrObjectIdsHandler      assignHandler,       ExternalEvent assignEvent,
+            PreviewRbrObjectIdsHandler     previewHandler,      ExternalEvent previewEvent,
+            ApplyRbrObjectIdsHandler       applyHandler,        ExternalEvent applyEvent,
+            LoadRbrTypeGroupsHandler       loadTypesHandler,    ExternalEvent loadTypesEvent,
+            PreviewRbrTypeNumbersHandler   previewTypeNumHandler, ExternalEvent previewTypeNumEvent,
+            ApplyRbrTypeNumbersHandler     applyTypeNumHandler, ExternalEvent applyTypeNumEvent)
         {
             InitializeComponent();
 
@@ -57,6 +75,13 @@ namespace RB_TypeName.UI
             _applyHandler   = applyHandler;
             _applyEvent     = applyEvent;
 
+            _loadTypesHandler     = loadTypesHandler;
+            _loadTypesEvent       = loadTypesEvent;
+            _previewTypeNumHandler = previewTypeNumHandler;
+            _previewTypeNumEvent  = previewTypeNumEvent;
+            _applyTypeNumHandler  = applyTypeNumHandler;
+            _applyTypeNumEvent    = applyTypeNumEvent;
+
             _assignHandler.OnCompleted = (results, index) =>
                 Dispatcher.Invoke(() => ShowAssignResults(results, index));
 
@@ -65,6 +90,15 @@ namespace RB_TypeName.UI
 
             _applyHandler.OnCompleted = (assigned, skipped, errors) =>
                 Dispatcher.Invoke(() => ShowApplyResults(assigned, skipped, errors));
+
+            _loadTypesHandler.OnCompleted = (rows, docPath) =>
+                Dispatcher.Invoke(() => ShowTypeGroups(rows, docPath));
+
+            _previewTypeNumHandler.OnCompleted = (rows, index) =>
+                Dispatcher.Invoke(() => ShowTypeNumberPreview(rows, index));
+
+            _applyTypeNumHandler.OnCompleted = (assigned, skipped, errors) =>
+                Dispatcher.Invoke(() => ShowTypeNumberApply(assigned, skipped, errors));
 
             LoadSettings();
         }
@@ -174,6 +208,10 @@ namespace RB_TypeName.UI
 
             SetStatus(result.Mappings.Count + " mapping(s) loaded.", isError: false);
             AssignButton.IsEnabled = true;
+
+            // Rebuild type-number lookup and discipline combo for Tab 2.
+            RebuildTypeNumberLookup();
+            PopulateDisciplineCombo();
         }
 
         private void SetStatus(string text, bool isError)
@@ -457,6 +495,383 @@ namespace RB_TypeName.UI
             }
         }
 
+        private void TypeNumbersGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            var dep = (DependencyObject)e.OriginalSource;
+            while (dep != null && dep is not DataGridCell)
+                dep = VisualTreeHelper.GetParent(dep);
+
+            if (dep is DataGridCell cell && !cell.IsEditing && !cell.IsReadOnly)
+            {
+                if (!cell.IsFocused)
+                    cell.Focus();
+                TypeNumbersGrid.BeginEdit(e);
+            }
+        }
+
+        // ── Type Numbers tab ─────────────────────────────────────────────────
+
+        private void RebuildTypeNumberLookup()
+        {
+            _typeNumberLookup = new Dictionary<string, PbsTypeNumberRow>(
+                StringComparer.OrdinalIgnoreCase);
+
+            if (_settings == null || string.IsNullOrEmpty(_settings.ExcelPath)
+                || !File.Exists(_settings.ExcelPath))
+                return;
+
+            var (success, _, rows) = PbsMappingService.LoadTypeNumberRows(_settings);
+            if (!success || rows == null) return;
+
+            foreach (var row in rows)
+                _typeNumberLookup[row.PrCodeNormalized] = row;
+
+            // Also (re)build the PrCode lookup used by LoadRbrTypeGroupsHandler.
+            var (prSuccess, _, prRows) = PbsMappingService.LoadPrCodeRows(_settings);
+            if (prSuccess && prRows != null)
+                _prCodeLookupForTypeNumbers = new PbsPrCodeLookupService(prRows);
+        }
+
+        private void PopulateDisciplineCombo()
+        {
+            var disciplines = _typeNumberLookup?.Values
+                .Select(r => r.DisciplineCode)
+                .Where(d => !string.IsNullOrWhiteSpace(d))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(d => d)
+                .ToList()
+                ?? new List<string>();
+
+            var items = new List<string> { "(All)" };
+            items.AddRange(disciplines);
+
+            DisciplineCombo.ItemsSource   = items;
+            DisciplineCombo.SelectedIndex = 0;
+        }
+
+        private void DisciplineCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_typeRows == null) return;
+
+            string selected = DisciplineCombo.SelectedItem as string;
+            if (string.IsNullOrEmpty(selected) || selected == "(All)")
+            {
+                TypeNumbersGrid.ItemsSource = _typeRows;
+                return;
+            }
+
+            TypeNumbersGrid.ItemsSource = _typeRows
+                .Where(r => string.Equals(r.DisciplineCode, selected,
+                    StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        private void LoadTypes_Click(object sender, RoutedEventArgs e)
+        {
+            _loadTypesHandler.LookupService     = _prCodeLookupForTypeNumbers;
+            _loadTypesHandler.TypeNumberLookup  = _typeNumberLookup
+                ?? new Dictionary<string, PbsTypeNumberRow>(StringComparer.OrdinalIgnoreCase);
+
+            string selected = DisciplineCombo.SelectedItem as string;
+            _loadTypesHandler.SelectedDiscipline =
+                (!string.IsNullOrEmpty(selected) && selected != "(All)") ? selected : null;
+
+            TypeNumbersGrid.ItemsSource              = null;
+            TypeNumberSummaryText.Text               = "Loading types from selection…";
+            TypeNumberWarningsBorder.Visibility      = Visibility.Collapsed;
+            PreviewTypeNumbersButton.IsEnabled       = false;
+            ApplyTypeNumbersButton.IsEnabled         = false;
+            ExportTypeNumbersButton.IsEnabled        = false;
+            _typeRows                                = null;
+
+            _loadTypesEvent.Raise();
+        }
+
+        private void ShowTypeGroups(List<TypeNumberPreviewRow> rows, string docPath)
+        {
+            _typeRows       = rows;
+            _currentDocPath = docPath ?? string.Empty;
+
+            // Load stored mappings and prefill L1Code for matching rows.
+            string storagePath = TypeNumberMappingStorageService
+                .GetStorageFilePath(SettingsFolder, _currentDocPath);
+            _mappingStorage = TypeNumberMappingStorageService.Load(storagePath);
+            _mappingStorage.ApplyToRows(rows);
+
+            TypeNumbersGrid.ItemsSource = rows;
+            TypeNumberSummaryText.Text  = rows == null || rows.Count == 0
+                ? "No element types found in current selection."
+                : $"{rows.Count} type(s) loaded.";
+
+            bool hasRows = rows != null && rows.Count > 0;
+            PreviewTypeNumbersButton.IsEnabled  = hasRows;
+            ExportTypeNumbersButton.IsEnabled   = hasRows;
+            ExportMappingButton.IsEnabled       = hasRows;
+        }
+
+        private void PreviewTypeNumbers_Click(object sender, RoutedEventArgs e)
+        {
+            if (_typeRows == null || _typeRows.Count == 0)
+            {
+                MessageBox.Show("Please load types from selection first.",
+                    "Preview", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            _previewTypeNumHandler.Rows         = _typeRows;
+            _previewTypeNumHandler.LedgerFolder = SettingsFolder;
+
+            TypeNumberSummaryText.Text          = "Generating previews…";
+            TypeNumberWarningsBorder.Visibility = Visibility.Collapsed;
+            PreviewTypeNumbersButton.IsEnabled  = false;
+            ApplyTypeNumbersButton.IsEnabled    = false;
+
+            _previewTypeNumEvent.Raise();
+        }
+
+        private void ShowTypeNumberPreview(
+            List<TypeNumberPreviewRow> rows, RbrTypeNumberIndex index)
+        {
+            _typeRows = rows;
+            TypeNumbersGrid.ItemsSource = null;
+            TypeNumbersGrid.ItemsSource = rows;
+
+            int ready   = rows?.Count(r => r.Status == "Ready") ?? 0;
+            int skipped = rows?.Count(r => r.Status == "Already has Type Number") ?? 0;
+            int issues  = rows?.Count(r =>
+                r.Status != "Ready" && r.Status != "Already has Type Number") ?? 0;
+
+            TypeNumberSummaryText.Text = $"Ready: {ready}   |   Already set: {skipped}   |   Issues: {issues}";
+
+            PreviewTypeNumbersButton.IsEnabled = true;
+            ApplyTypeNumbersButton.IsEnabled   = ready > 0;
+            ExportTypeNumbersButton.IsEnabled  = rows != null && rows.Count > 0;
+
+            if (index?.Duplicates?.Count > 0)
+            {
+                TypeNumberWarningsText.Text         =
+                    "Duplicate RBR-Type_number values in model: " +
+                    string.Join(", ", index.Duplicates.Take(10));
+                TypeNumberWarningsBorder.Visibility = Visibility.Visible;
+            }
+        }
+
+        private void ApplyTypeNumbers_Click(object sender, RoutedEventArgs e)
+        {
+            if (_typeRows == null) return;
+
+            var toApply = _typeRows.Where(r => r.IsSelected && r.IsReady).ToList();
+            if (toApply.Count == 0)
+            {
+                MessageBox.Show("No Ready rows are selected.",
+                    "Apply", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            _applyTypeNumHandler.RowsToApply  = toApply;
+            _applyTypeNumHandler.LedgerFolder = SettingsFolder;
+
+            TypeNumberSummaryText.Text       = "Applying type numbers…";
+            ApplyTypeNumbersButton.IsEnabled = false;
+
+            _applyTypeNumEvent.Raise();
+        }
+
+        private void ShowTypeNumberApply(int assigned, int skipped, List<string> errors)
+        {
+            TypeNumbersGrid.ItemsSource = null;
+            TypeNumbersGrid.ItemsSource = _typeRows;
+
+            TypeNumberSummaryText.Text =
+                $"Assigned: {assigned}   |   Skipped: {skipped}   |   Errors: {errors.Count}";
+
+            ApplyTypeNumbersButton.IsEnabled = false;   // Re-run Preview to re-enable.
+
+            if (errors.Count > 0)
+            {
+                TypeNumberWarningsText.Text         = string.Join("\n", errors);
+                TypeNumberWarningsBorder.Visibility = Visibility.Visible;
+            }
+        }
+
+        private void ExportMapping_Click(object sender, RoutedEventArgs e)
+        {
+            if (_typeRows == null || _typeRows.Count == 0) return;
+
+            string modeChoice = ShowChoiceDialog(
+                "Export Mapping Excel",
+                "Which rows do you want to export?",
+                "All rows",
+                "Only unmapped rows (no L1 code set)",
+                "Only mapped rows (L1 code already set)");
+            if (modeChoice == null) return;
+
+            var exportMode = modeChoice.Contains("unmapped") ? TypeNumberExcelExportMode.OnlyUnmapped
+                           : modeChoice.Contains("mapped")   ? TypeNumberExcelExportMode.OnlyMapped
+                           : TypeNumberExcelExportMode.All;
+
+            var dlg = new SaveFileDialog
+            {
+                Title      = "Export Type Number Mapping",
+                Filter     = "Excel files (*.xlsx)|*.xlsx",
+                FileName   = $"RBR_TypeNumberMapping_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx",
+                DefaultExt = ".xlsx",
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            var existingMappings = new Dictionary<string, TypeNumberMappingRecord>(
+                StringComparer.OrdinalIgnoreCase);
+            if (_mappingStorage != null)
+                foreach (var r in _mappingStorage.AllRecords)
+                    existingMappings[r.MatchKey] = r;
+
+            var (success, error) = TypeNumberMappingExcelService.Export(
+                _typeRows, exportMode, dlg.FileName, existingMappings);
+
+            if (!success)
+                MessageBox.Show("Export failed:\n" + error,
+                    "Export Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            else
+                MessageBox.Show("Exported to:\n" + dlg.FileName,
+                    "Export", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+
+        private void ImportMapping_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new OpenFileDialog
+            {
+                Title  = "Import Type Number Mapping",
+                Filter = "Excel files (*.xlsx)|*.xlsx",
+            };
+            if (dlg.ShowDialog() != true) return;
+
+            var (records, result, error) = TypeNumberMappingExcelService.Import(dlg.FileName);
+            if (error != null)
+            {
+                MessageBox.Show("Import failed:\n" + error,
+                    "Import Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            if (records == null || records.Count == 0)
+            {
+                MessageBox.Show("No valid mapping rows found in file.",
+                    "Import", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            string summary = $"Found {records.Count} valid row(s).";
+            if (result.Invalid   > 0) summary += $"\nInvalid rows skipped: {result.Invalid}";
+            if (result.Conflicts > 0) summary += $"\nConflicting duplicates skipped: {result.Conflicts}";
+
+            string modeChoice = ShowChoiceDialog(
+                "Import Mapping Excel",
+                summary + "\n\nHow should imported mappings be applied?",
+                "Override existing mappings",
+                "Only add new mappings (keep existing)");
+            if (modeChoice == null) return;
+
+            bool overwrite = modeChoice.StartsWith("Override");
+
+            if (_mappingStorage == null)
+            {
+                string storagePath = TypeNumberMappingStorageService
+                    .GetStorageFilePath(SettingsFolder, _currentDocPath);
+                _mappingStorage = TypeNumberMappingStorageService.Load(storagePath);
+            }
+
+            int upserted   = 0;
+            int notUpdated = 0;
+            foreach (var rec in records)
+            {
+                if (_mappingStorage.Upsert(rec, overwrite)) upserted++;
+                else notUpdated++;
+            }
+            _mappingStorage.Save();
+
+            // Reapply to current grid rows.
+            if (_typeRows != null)
+            {
+                if (overwrite)
+                {
+                    // Force-set L1Code from the newly stored values.
+                    foreach (var row in _typeRows)
+                    {
+                        var stored = _mappingStorage.TryGet(row.MatchKey);
+                        if (stored != null && !string.IsNullOrWhiteSpace(stored.L1Code))
+                            row.L1Code = stored.L1Code;
+                    }
+                }
+                else
+                {
+                    _mappingStorage.ApplyToRows(_typeRows);
+                }
+                TypeNumbersGrid.ItemsSource = null;
+                TypeNumbersGrid.ItemsSource = _typeRows;
+            }
+
+            MessageBox.Show(
+                $"Import complete.\nSaved: {upserted}   Not updated: {notUpdated}" +
+                $"   Invalid: {result.Invalid}   Conflicts: {result.Conflicts}",
+                "Import", MessageBoxButton.OK, MessageBoxImage.Information);
+
+            if (result.Issues.Count > 0)
+            {
+                TypeNumberWarningsText.Text         = string.Join("\n", result.Issues.Take(10));
+                TypeNumberWarningsBorder.Visibility = Visibility.Visible;
+            }
+        }
+
+        private void ExportTypeNumbers_Click(object sender, RoutedEventArgs e)
+        {
+            if (_typeRows == null || _typeRows.Count == 0) return;
+
+            var dlg = new SaveFileDialog
+            {
+                Title      = "Export RBR Type Numbers Report",
+                Filter     = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+                FileName   = $"RBR_TypeNumbers_Report_{DateTime.Now:yyyyMMdd_HHmmss}.csv",
+                DefaultExt = ".csv",
+            };
+
+            if (dlg.ShowDialog() != true) return;
+
+            try
+            {
+                var sb = new StringBuilder();
+                sb.AppendLine("Timestamp,Category,FamilyName,TypeName,Instances," +
+                              "RBR_Pr_Code,PbsMatch,PbsTemplate,L1Code," +
+                              "ExistingTypeNumber,ProposedTypeNumber,Status,Message");
+
+                string ts = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                foreach (var row in _typeRows)
+                {
+                    sb.AppendLine(
+                        $"{Csv(ts)}," +
+                        $"{Csv(row.Category)}," +
+                        $"{Csv(row.FamilyName)}," +
+                        $"{Csv(row.TypeName)}," +
+                        $"{row.InstanceCount}," +
+                        $"{Csv(row.RbrPrCode)}," +
+                        $"{Csv(row.PbsMatchStatus)}," +
+                        $"{Csv(row.PbsTypeTemplate)}," +
+                        $"{Csv(row.L1Code)}," +
+                        $"{Csv(row.ExistingTypeNumber)}," +
+                        $"{Csv(row.ProposedTypeNumber)}," +
+                        $"{Csv(row.Status)}," +
+                        $"{Csv(row.Message)}");
+                }
+
+                File.WriteAllText(dlg.FileName, sb.ToString(), Encoding.UTF8);
+                MessageBox.Show("Report exported to:\n" + dlg.FileName,
+                    "Export", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Export failed:\n" + ex.Message,
+                    "Export Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         // ── Helpers ──────────────────────────────────────────────────────────
 
         private void ResetPreviewState()
@@ -513,6 +928,69 @@ namespace RB_TypeName.UI
             if (v.Contains(',') || v.Contains('"') || v.Contains('\n'))
                 return "\"" + v.Replace("\"", "\"\"") + "\"";
             return v;
+        }
+
+        /// <summary>
+        /// Displays a simple modal dialog with a prompt and a set of radio-button choices.
+        /// Returns the text of the selected option, or null if the user cancelled.
+        /// Built entirely in code (no XAML file required).
+        /// </summary>
+        private static string ShowChoiceDialog(string title, string prompt,
+                                               params string[] options)
+        {
+            if (options == null || options.Length == 0) return null;
+
+            string result = null;
+            var win = new Window
+            {
+                Title                 = title,
+                Width                 = 420,
+                Height                = 130 + options.Length * 30,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                ResizeMode            = ResizeMode.NoResize,
+                ShowInTaskbar         = false,
+            };
+
+            var outer = new StackPanel { Margin = new Thickness(16) };
+            outer.Children.Add(new TextBlock
+            {
+                Text         = prompt,
+                TextWrapping = TextWrapping.Wrap,
+                Margin       = new Thickness(0, 0, 0, 10),
+            });
+
+            var radios = options.Select((opt, i) =>
+            {
+                var r = new RadioButton
+                {
+                    Content   = opt,
+                    IsChecked = i == 0,
+                    Margin    = new Thickness(0, 0, 0, 4),
+                };
+                outer.Children.Add(r);
+                return r;
+            }).ToArray();
+
+            var btns = new StackPanel
+            {
+                Orientation         = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Margin              = new Thickness(0, 12, 0, 0),
+            };
+            var ok     = new Button { Content = "OK",     Width = 75, Height = 26, Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+            var cancel = new Button { Content = "Cancel", Width = 75, Height = 26, IsCancel = true };
+            ok.Click     += (s, e) =>
+            {
+                result = radios.FirstOrDefault(r => r.IsChecked == true)?.Content?.ToString();
+                win.DialogResult = true;
+            };
+            cancel.Click += (s, e) => win.DialogResult = false;
+            btns.Children.Add(ok);
+            btns.Children.Add(cancel);
+            outer.Children.Add(btns);
+            win.Content = outer;
+
+            return win.ShowDialog() == true ? result : null;
         }
     }
 }

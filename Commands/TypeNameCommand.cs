@@ -51,7 +51,10 @@ namespace RB_TypeName.Commands
                 _window = new UI.RbrObjectIdWindow(
                     App.AssignHandler,  App.AssignExternalEvent,
                     App.PreviewHandler, App.PreviewExternalEvent,
-                    App.ApplyHandler,   App.ApplyExternalEvent);
+                    App.ApplyHandler,   App.ApplyExternalEvent,
+                    App.LoadTypesHandler,              App.LoadTypesExternalEvent,
+                    App.PreviewTypeNumbersHandler,     App.PreviewTypeNumbersExternalEvent,
+                    App.ApplyTypeNumbersHandler,       App.ApplyTypeNumbersExternalEvent);
             _window.Closed += (s, args) => _window = null;
             _window.Show();
         }

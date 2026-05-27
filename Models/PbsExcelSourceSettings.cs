@@ -34,6 +34,12 @@ namespace RB_TypeName.Models
         /// </summary>
         public string PbsPrCodeColumn         { get; set; } = string.Empty;
 
+        /// <summary>
+        /// Override column letter for the RBR-Type_number template column in the PBS sheet.
+        /// Leave empty to auto-detect from header row.
+        /// </summary>
+        public string PbsTypeNumberColumn     { get; set; } = string.Empty;
+
         // ── JSON persistence ─────────────────────────────────────────────────
 
         public static PbsExcelSourceSettings LoadFromFile(string path)
@@ -54,6 +60,7 @@ namespace RB_TypeName.Models
                 s.UseRbrPrCodeLookup        = ReadBool  (json, "UseRbrPrCodeLookup",   s.UseRbrPrCodeLookup);
                 s.UseManualMappingFallback  = ReadBool  (json, "UseManualMappingFallback", s.UseManualMappingFallback);
                 s.PbsPrCodeColumn           = ReadString(json, "PbsPrCodeColumn")           ?? s.PbsPrCodeColumn;
+                s.PbsTypeNumberColumn       = ReadString(json, "PbsTypeNumberColumn")       ?? s.PbsTypeNumberColumn;
             }
             catch { /* return defaults on any parse error */ }
 
@@ -76,7 +83,8 @@ namespace RB_TypeName.Models
                 sb.AppendLine($"  \"DescriptionColumn\": {Js(DescriptionColumn)},");
                 sb.AppendLine($"  \"UseRbrPrCodeLookup\": {(UseRbrPrCodeLookup ? "true" : "false")},");
                 sb.AppendLine($"  \"UseManualMappingFallback\": {(UseManualMappingFallback ? "true" : "false")},");
-                sb.AppendLine($"  \"PbsPrCodeColumn\": {Js(PbsPrCodeColumn)}");
+                sb.AppendLine($"  \"PbsPrCodeColumn\": {Js(PbsPrCodeColumn)},");
+                sb.AppendLine($"  \"PbsTypeNumberColumn\": {Js(PbsTypeNumberColumn)}");
                 sb.AppendLine("}");
                 File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
             }

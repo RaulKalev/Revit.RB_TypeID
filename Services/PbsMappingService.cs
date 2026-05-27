@@ -287,6 +287,183 @@ namespace RB_TypeName.Services
             return result;
         }
 
+        // ── Type-number header candidates ────────────────────────────────────
+
+        private static readonly string[] TypeNumberHeaderCandidates =
+        {
+            "RBR_Type_number", "RBR-Type_number", "RBR_Type_Number", "RBR-Type_Number",
+            "RBR-Type number",  "RBR Type number",
+            "Type_number",      "Type Number",
+        };
+
+        // ── Type-number rows load entry point ────────────────────────────────
+
+        /// <summary>
+        /// Loads PBS rows that contain a type-number template (e.g. "CAM-01ZZZZ").
+        /// Returns a flat list keyed by normalised PrCode for use in the Type Numbers tab.
+        /// </summary>
+        public static (bool Success, string Error, List<PbsTypeNumberRow> Rows)
+            LoadTypeNumberRows(PbsExcelSourceSettings settings)
+        {
+            if (settings == null)
+                return (false, "PBS Excel settings are missing.", null);
+
+            if (string.IsNullOrWhiteSpace(settings.ExcelPath))
+                return (false, "PBS Excel file path has not been selected.", null);
+
+            if (!File.Exists(settings.ExcelPath))
+                return (false, "PBS Excel file was not found:\n" + settings.ExcelPath, null);
+
+            try
+            {
+                using var zip = ZipFile.OpenRead(settings.ExcelPath);
+
+                var sharedStrings = ReadSharedStrings(zip);
+                var worksheetPath = FindWorksheetPath(zip, settings.SheetName);
+
+                if (worksheetPath == null)
+                    return (false,
+                        "Worksheet '" + settings.SheetName + "' was not found in the selected Excel file.",
+                        null);
+
+                var (rows, error) = ReadTypeNumberRows(zip, worksheetPath, sharedStrings, settings);
+                if (error != null)
+                    return (false, error, null);
+
+                return (true, null, rows);
+            }
+            catch (IOException ex)
+            {
+                return (false,
+                    "PBS Excel file could not be read. It may be locked or unavailable.\n" + ex.Message,
+                    null);
+            }
+            catch (Exception ex)
+            {
+                return (false, "Failed to load PBS Excel type-number rows.\n" + ex.Message, null);
+            }
+        }
+
+        // ── Type-number rows reader ───────────────────────────────────────────
+
+        private static (List<PbsTypeNumberRow> Rows, string Error)
+            ReadTypeNumberRows(ZipArchive zip, string worksheetPath,
+                string[] sharedStrings, PbsExcelSourceSettings settings)
+        {
+            var entry = zip.GetEntry(worksheetPath);
+            if (entry == null) return (null, "Worksheet entry not found in archive.");
+
+            int colR = LetterToIndex(settings.DisciplineCodeColumn);
+            int colS = LetterToIndex(settings.ObjectCodeColumn);
+
+            using var stream = entry.Open();
+            var doc = XDocument.Load(stream);
+            XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+
+            var allRows = doc.Root
+                .Element(ns + "sheetData")?
+                .Elements(ns + "row")
+                .ToList()
+                ?? new List<XElement>();
+
+            // ── Locate PrCode column ─────────────────────────────────────────
+            int colPrCode = FindColumnByHeaderCandidates(
+                allRows, sharedStrings, settings.HeaderRow, ns,
+                PrCodeHeaderCandidates,
+                settings.PbsPrCodeColumn);
+
+            if (colPrCode == 0)
+                return (null,
+                    "The RBR_Pr_Code column could not be located in the PBS sheet.");
+
+            // ── Locate Type-number column ────────────────────────────────────
+            int colTypeNum = FindColumnByHeaderCandidates(
+                allRows, sharedStrings, settings.HeaderRow, ns,
+                TypeNumberHeaderCandidates,
+                settings.PbsTypeNumberColumn);
+
+            if (colTypeNum == 0)
+                return (null,
+                    "The RBR-Type_number column could not be located in the PBS sheet. " +
+                    "Please check the file or specify the column override in settings.");
+
+            // ── Read data rows ───────────────────────────────────────────────
+            var result = new List<PbsTypeNumberRow>();
+
+            foreach (var row in allRows)
+            {
+                int.TryParse(row.Attribute("r")?.Value, out int rowNum);
+                if (rowNum > 0 && rowNum <= settings.HeaderRow) continue;
+
+                var cells = row.Elements(ns + "c")
+                    .ToDictionary(c => ParseColumnIndex(c.Attribute("r")?.Value));
+
+                string prCodeRaw = GetCellValue(cells, colPrCode, sharedStrings);
+                if (string.IsNullOrWhiteSpace(prCodeRaw)) continue;
+
+                string typeNumTemplate = GetCellValue(cells, colTypeNum, sharedStrings);
+                // Keep rows that have either a type number template or at least a PrCode.
+                if (string.IsNullOrWhiteSpace(typeNumTemplate)) continue;
+
+                string rVal = GetCellValue(cells, colR, sharedStrings);
+                string sVal = GetCellValue(cells, colS, sharedStrings);
+
+                string normalized = prCodeRaw.Trim()
+                    .Replace("\u00A0", " ")
+                    .ToUpperInvariant();
+
+                result.Add(new PbsTypeNumberRow
+                {
+                    RowNumber          = rowNum,
+                    PrCodeRaw          = prCodeRaw.Trim(),
+                    PrCodeNormalized   = normalized,
+                    DisciplineCode     = rVal?.Trim().ToUpperInvariant() ?? string.Empty,
+                    ObjectCode         = sVal?.Trim().ToUpperInvariant() ?? string.Empty,
+                    TypeNumberTemplate = typeNumTemplate.Trim(),
+                });
+            }
+
+            return (result, null);
+        }
+
+        /// <summary>
+        /// Finds a column index by scanning the header rows for any of the given candidates.
+        /// Falls back to a manually-specified override letter when provided.
+        /// </summary>
+        private static int FindColumnByHeaderCandidates(
+            List<XElement> allRows,
+            string[] sharedStrings,
+            int headerRow,
+            XNamespace ns,
+            string[] candidates,
+            string overrideLetter)
+        {
+            if (!string.IsNullOrWhiteSpace(overrideLetter))
+                return LetterToIndex(overrideLetter.Trim().ToUpperInvariant());
+
+            foreach (var row in allRows)
+            {
+                int.TryParse(row.Attribute("r")?.Value, out int rn);
+                if (rn <= 0 || rn > headerRow) continue;
+
+                var cells = row.Elements(ns + "c")
+                    .ToDictionary(c => ParseColumnIndex(c.Attribute("r")?.Value));
+
+                foreach (var kv in cells)
+                {
+                    string val = GetCellValue(
+                        new Dictionary<int, XElement> { { kv.Key, kv.Value } },
+                        kv.Key, sharedStrings);
+                    if (val == null) continue;
+                    val = val.Trim();
+                    if (candidates.Any(h => string.Equals(h, val, StringComparison.OrdinalIgnoreCase)))
+                        return kv.Key;
+                }
+            }
+
+            return 0;
+        }
+
         // ── PrCode rows reader ───────────────────────────────────────────────
 
         private static (List<PbsPrCodeRow> Rows, string ColumnFound, string Error)

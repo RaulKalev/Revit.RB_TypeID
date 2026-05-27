@@ -17,6 +17,15 @@ namespace RB_TypeName
         public static ApplyRbrObjectIdsHandler   ApplyHandler         { get; private set; }
         public static ExternalEvent              ApplyExternalEvent   { get; private set; }
 
+        public static LoadRbrTypeGroupsHandler       LoadTypesHandler              { get; private set; }
+        public static ExternalEvent                  LoadTypesExternalEvent        { get; private set; }
+
+        public static PreviewRbrTypeNumbersHandler   PreviewTypeNumbersHandler     { get; private set; }
+        public static ExternalEvent                  PreviewTypeNumbersExternalEvent { get; private set; }
+
+        public static ApplyRbrTypeNumbersHandler     ApplyTypeNumbersHandler       { get; private set; }
+        public static ExternalEvent                  ApplyTypeNumbersExternalEvent { get; private set; }
+
         private RibbonPanel ribbonPanel;
 
         public Result OnStartup(UIControlledApplication application)
@@ -29,6 +38,15 @@ namespace RB_TypeName
 
             ApplyHandler         = new ApplyRbrObjectIdsHandler();
             ApplyExternalEvent   = ExternalEvent.Create(ApplyHandler);
+
+            LoadTypesHandler              = new LoadRbrTypeGroupsHandler();
+            LoadTypesExternalEvent        = ExternalEvent.Create(LoadTypesHandler);
+
+            PreviewTypeNumbersHandler     = new PreviewRbrTypeNumbersHandler();
+            PreviewTypeNumbersExternalEvent = ExternalEvent.Create(PreviewTypeNumbersHandler);
+
+            ApplyTypeNumbersHandler       = new ApplyRbrTypeNumbersHandler();
+            ApplyTypeNumbersExternalEvent = ExternalEvent.Create(ApplyTypeNumbersHandler);
 
             const string tabName = "RK Tools";
 
@@ -49,6 +67,9 @@ namespace RB_TypeName
             AssignExternalEvent?.Dispose();
             PreviewExternalEvent?.Dispose();
             ApplyExternalEvent?.Dispose();
+            LoadTypesExternalEvent?.Dispose();
+            PreviewTypeNumbersExternalEvent?.Dispose();
+            ApplyTypeNumbersExternalEvent?.Dispose();
             return Result.Succeeded;
         }
     }
