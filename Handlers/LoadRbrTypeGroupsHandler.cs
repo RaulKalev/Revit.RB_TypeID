@@ -88,8 +88,10 @@ namespace RB_TypeName.Handlers
 
                 foreach (var element in collector)
                 {
-                    // Skip Revit links.
+                    // Skip Revit links, DWG/DXF/IFC imports & links, and views.
                     if (element is RevitLinkInstance) continue;
+                    if (element is ImportInstance)    continue;   // DWG, DXF, linked IFC
+                    if (element is View)              continue;
 
                     // Skip annotation/2D elements and internal Revit categories.
                     // Only CategoryType.Model represents placed 3D model elements.
