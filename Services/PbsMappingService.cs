@@ -520,15 +520,19 @@ namespace RB_TypeName.Services
 
                         foundHeaders.Add($"{IndexToLetter(kv.Key)}:{val}");
 
-                        // Exact match first
-                        bool match = PrCodeHeaderCandidates.Any(h =>
-                            string.Equals(h, val, StringComparison.OrdinalIgnoreCase));
+                        // Normalize for matching: collapse whitespace/newlines first
+                        string valNorm = val.Replace("\r", " ").Replace("\n", " ").Trim();
 
-                        // Fuzzy fallback: header contains "prcode" or "pr_code" or "pr code"
+                        // Exact match or starts-with match (handles multiline headers like "RBR-Pr_Code\nif element")
+                        bool match = PrCodeHeaderCandidates.Any(h =>
+                            string.Equals(h, valNorm, StringComparison.OrdinalIgnoreCase) ||
+                            valNorm.StartsWith(h, StringComparison.OrdinalIgnoreCase));
+
+                        // Fuzzy fallback: header contains "prcode"
                         if (!match)
                         {
-                            string norm = val.Replace("-", "").Replace("_", "").Replace(" ", "")
-                                            .ToUpperInvariant();
+                            string norm = valNorm.Replace("-", "").Replace("_", "").Replace(" ", "")
+                                                 .ToUpperInvariant();
                             match = norm.Contains("PRCODE");
                         }
 

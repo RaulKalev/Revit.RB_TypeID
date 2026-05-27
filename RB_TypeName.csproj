@@ -38,4 +38,16 @@
     <PackageReference Include="Autodesk.Revit.SDK" Version="2026.*" IncludeAssets="build; compile" PrivateAssets="All" />
   </ItemGroup>
 
+
+  <!-- Deploy to AppLoader watched folder (net48 only) -->
+  <Target Name="DeployToAppLoader" AfterTargets="Build" Condition="'$(TargetFramework)' == 'net48'">
+    <PropertyGroup>
+      <AppLoaderTarget>C:\ProgramData\Autodesk\Revit\Addins\2024\Tests\RKTools\RB_TypeName\Debug\net48\</AppLoaderTarget>
+    </PropertyGroup>
+    <MakeDir Directories="$(AppLoaderTarget)" />
+    <Copy SourceFiles="$(OutputPath)$(AssemblyName).dll"
+          DestinationFolder="$(AppLoaderTarget)"
+          SkipUnchangedFiles="false" />
+  </Target>
+
 </Project>
