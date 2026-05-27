@@ -3,6 +3,7 @@ using RB_TypeName.Models;
 using RB_TypeName.Services;
 using System;
 using System.Collections.Generic;
+using System.Text.RegularExpressions;
 
 namespace RB_TypeName.Handlers
 {
@@ -47,31 +48,31 @@ namespace RB_TypeName.Handlers
                         row.Status == "RBR-Type_number parameter read-only")
                         continue;
 
-                    // Require L1 code before generating a number.
-                    if (string.IsNullOrWhiteSpace(row.L1Code))
+                    // Require a valid L1 code before generating a number.
+                    string userL1 = (row.L1Code ?? string.Empty).Trim().ToUpperInvariant();
+                    if (string.IsNullOrWhiteSpace(userL1))
                     {
-                        row.Status           = "Missing L1 code";
+                        row.Status             = "Missing L1 code";
                         row.ProposedTypeNumber = string.Empty;
-                        row.IsSelected       = false;
+                        row.IsSelected         = false;
+                        continue;
+                    }
+                    if (!Regex.IsMatch(userL1, @"^[A-Z0-9_\-]+$"))
+                    {
+                        row.Status             = "Invalid L1 code (use A-Z, 0-9, - or _)";
+                        row.ProposedTypeNumber = string.Empty;
+                        row.IsSelected         = false;
                         continue;
                     }
 
-                    // ── Determine prefix and template ────────────────────────
+                    // ── Determine prefix from user's L1Code (not from template) ──
+                    // If a PBS template exists, extract the suffix after ZZZZ from it.
                     string template    = row.PbsTypeTemplate ?? string.Empty;
                     bool   hasTemplate = template.IndexOf("ZZZZ",
                         StringComparison.OrdinalIgnoreCase) >= 0;
 
-                    string prefix;
-                    if (hasTemplate)
-                    {
-                        int idx = template.IndexOf("ZZZZ", StringComparison.OrdinalIgnoreCase);
-                        prefix  = template.Substring(0, idx);
-                    }
-                    else
-                    {
-                        // Fallback: L1Code + "-"
-                        prefix = row.L1Code.TrimEnd('-') + "-";
-                    }
+                    // Prefix is ALWAYS the user's L1Code (trimmed, uppercase).
+                    string prefix = userL1;
 
                     // ── Next number = max(model max, ledger max) + 1 ─────────
                     int indexMax  = index.GetMaxNumber(prefix);
@@ -82,13 +83,17 @@ namespace RB_TypeName.Handlers
                     string proposed;
                     if (hasTemplate)
                     {
-                        int    zzIdx     = template.IndexOf("ZZZZ", StringComparison.OrdinalIgnoreCase);
+                        // Take only the part after ZZZZ from the template as suffix.
+                        int    zzIdx     = template.IndexOf("ZZZZ",
+                            StringComparison.OrdinalIgnoreCase);
                         string afterZzzz = template.Substring(zzIdx + 4);
                         proposed = prefix + nextNum.ToString("D4") + afterZzzz;
                     }
                     else
                     {
-                        proposed = prefix + nextNum.ToString("D4");
+                        // No template: prefix + "-" + 4-digit number.
+                        string sep = prefix.EndsWith("-") ? string.Empty : "-";
+                        proposed = prefix + sep + nextNum.ToString("D4");
                     }
 
                     // Reserve in-memory so the next row in this batch increments.
@@ -114,3 +119,4 @@ namespace RB_TypeName.Handlers
         public string GetName() => "Preview RBR Type Numbers";
     }
 }
+

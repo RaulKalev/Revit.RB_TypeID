@@ -44,6 +44,9 @@ namespace RB_TypeName.UI
         private readonly ApplyRbrTypeNumbersHandler     _applyTypeNumHandler;
         private readonly ExternalEvent                  _applyTypeNumEvent;
 
+        private readonly SaveTypeNumberMappingsHandler  _saveMappingsHandler;
+        private readonly ExternalEvent                  _saveMappingsEvent;
+
         // ── State ────────────────────────────────────────────────────────────
 
         private PbsExcelSourceSettings  _settings;
@@ -53,8 +56,8 @@ namespace RB_TypeName.UI
         private List<TypeNumberPreviewRow>            _typeRows;
         private Dictionary<string, PbsTypeNumberRow>  _typeNumberLookup;
         private PbsPrCodeLookupService                _prCodeLookupForTypeNumbers;
-        private TypeNumberMappingStorageService        _mappingStorage;
-        private string                                 _currentDocPath = string.Empty;
+        private string                                 _currentDocPath        = string.Empty;
+        private string                                 _currentTypeSourceParam = "Revit Type Name";
 
         // ── Constructor ──────────────────────────────────────────────────────
 
@@ -64,7 +67,8 @@ namespace RB_TypeName.UI
             ApplyRbrObjectIdsHandler       applyHandler,        ExternalEvent applyEvent,
             LoadRbrTypeGroupsHandler       loadTypesHandler,    ExternalEvent loadTypesEvent,
             PreviewRbrTypeNumbersHandler   previewTypeNumHandler, ExternalEvent previewTypeNumEvent,
-            ApplyRbrTypeNumbersHandler     applyTypeNumHandler, ExternalEvent applyTypeNumEvent)
+            ApplyRbrTypeNumbersHandler     applyTypeNumHandler, ExternalEvent applyTypeNumEvent,
+            SaveTypeNumberMappingsHandler  saveMappingsHandler, ExternalEvent saveMappingsEvent)
         {
             InitializeComponent();
 
@@ -81,6 +85,8 @@ namespace RB_TypeName.UI
             _previewTypeNumEvent  = previewTypeNumEvent;
             _applyTypeNumHandler  = applyTypeNumHandler;
             _applyTypeNumEvent    = applyTypeNumEvent;
+            _saveMappingsHandler  = saveMappingsHandler;
+            _saveMappingsEvent    = saveMappingsEvent;
 
             _assignHandler.OnCompleted = (results, index) =>
                 Dispatcher.Invoke(() => ShowAssignResults(results, index));
@@ -91,14 +97,33 @@ namespace RB_TypeName.UI
             _applyHandler.OnCompleted = (assigned, skipped, errors) =>
                 Dispatcher.Invoke(() => ShowApplyResults(assigned, skipped, errors));
 
-            _loadTypesHandler.OnCompleted = (rows, docPath) =>
-                Dispatcher.Invoke(() => ShowTypeGroups(rows, docPath));
+            _loadTypesHandler.OnCompleted = (rows, docPath, paramNames) =>
+                Dispatcher.Invoke(() => ShowTypeGroups(rows, docPath, paramNames));
 
             _previewTypeNumHandler.OnCompleted = (rows, index) =>
                 Dispatcher.Invoke(() => ShowTypeNumberPreview(rows, index));
 
             _applyTypeNumHandler.OnCompleted = (assigned, skipped, errors) =>
                 Dispatcher.Invoke(() => ShowTypeNumberApply(assigned, skipped, errors));
+
+            _saveMappingsHandler.OnCompleted = (count, err) =>
+                Dispatcher.Invoke(() =>
+                {
+                    SaveMappingsButton.IsEnabled = _typeRows?.Count > 0;
+                    TypeNumberStatusText.Text = err != null
+                        ? "Save failed: " + err
+                        : $"Saved {count} mapping(s) to model.";
+
+                    // Mark rows as saved where L1Code is valid.
+                    if (_typeRows != null && err == null)
+                    {
+                        foreach (var r in _typeRows)
+                        {
+                            if (!string.IsNullOrWhiteSpace(r.L1Code) && !r.HasSavedMapping)
+                                r.ApplyL1CodeFromMapping(r.L1Code, "Saved", hasSavedMapping: true);
+                        }
+                    }
+                });
 
             LoadSettings();
         }
@@ -568,49 +593,100 @@ namespace RB_TypeName.UI
 
         private void LoadTypes_Click(object sender, RoutedEventArgs e)
         {
-            _loadTypesHandler.LookupService     = _prCodeLookupForTypeNumbers;
-            _loadTypesHandler.TypeNumberLookup  = _typeNumberLookup
+            _loadTypesHandler.LookupService    = _prCodeLookupForTypeNumbers;
+            _loadTypesHandler.TypeNumberLookup = _typeNumberLookup
                 ?? new Dictionary<string, PbsTypeNumberRow>(StringComparer.OrdinalIgnoreCase);
 
             string selected = DisciplineCombo.SelectedItem as string;
             _loadTypesHandler.SelectedDiscipline =
                 (!string.IsNullOrEmpty(selected) && selected != "(All)") ? selected : null;
 
+            // Pass the current TypeSource selection and settings folder.
+            _currentTypeSourceParam = TypeSourceCombo.SelectedItem as string ?? "Revit Type Name";
+            _loadTypesHandler.TypeSourceParameterName = _currentTypeSourceParam;
+            _loadTypesHandler.SettingsFolder          = SettingsFolder;
+
             TypeNumbersGrid.ItemsSource              = null;
             TypeNumberSummaryText.Text               = "Loading types from selection…";
             TypeNumberWarningsBorder.Visibility      = Visibility.Collapsed;
+            SaveMappingsButton.IsEnabled             = false;
             PreviewTypeNumbersButton.IsEnabled       = false;
             ApplyTypeNumbersButton.IsEnabled         = false;
             ExportTypeNumbersButton.IsEnabled        = false;
+            ExportMappingButton.IsEnabled            = false;
             _typeRows                                = null;
 
             _loadTypesEvent.Raise();
         }
 
-        private void ShowTypeGroups(List<TypeNumberPreviewRow> rows, string docPath)
+        private void ShowTypeGroups(List<TypeNumberPreviewRow> rows, string docPath,
+                                     List<string> paramNames)
         {
             _typeRows       = rows;
             _currentDocPath = docPath ?? string.Empty;
 
-            // Load stored mappings and prefill L1Code for matching rows.
-            string storagePath = TypeNumberMappingStorageService
-                .GetStorageFilePath(SettingsFolder, _currentDocPath);
-            _mappingStorage = TypeNumberMappingStorageService.Load(storagePath);
-            _mappingStorage.ApplyToRows(rows);
+            // Populate TypeSource combo with discovered parameter names.
+            PopulateTypeSourceCombo(paramNames);
 
+            // Restore the TypeSource setting saved in ExtStorage (via RestoredSettings).
+            if (_loadTypesHandler.RestoredSettings != null)
+            {
+                string savedParam = _loadTypesHandler.RestoredSettings
+                    .SelectedTypeSourceParameterName;
+                if (!string.IsNullOrWhiteSpace(savedParam))
+                {
+                    int idx = TypeSourceCombo.Items.IndexOf(savedParam);
+                    if (idx >= 0) TypeSourceCombo.SelectedIndex = idx;
+                }
+            }
+
+            // Mappings are already applied by the handler (from ExtStorage).
             TypeNumbersGrid.ItemsSource = rows;
             TypeNumberSummaryText.Text  = rows == null || rows.Count == 0
                 ? "No element types found in current selection."
                 : $"{rows.Count} type(s) loaded.";
 
             bool hasRows = rows != null && rows.Count > 0;
+            SaveMappingsButton.IsEnabled        = hasRows;
             PreviewTypeNumbersButton.IsEnabled  = hasRows;
             ExportTypeNumbersButton.IsEnabled   = hasRows;
             ExportMappingButton.IsEnabled       = hasRows;
         }
 
-        private void PreviewTypeNumbers_Click(object sender, RoutedEventArgs e)
+        /// <summary>Populates the TypeSource combo while preserving the current selection.</summary>
+        private void PopulateTypeSourceCombo(List<string> paramNames)
         {
+            string current = TypeSourceCombo.SelectedItem as string ?? _currentTypeSourceParam;
+            var items = paramNames != null && paramNames.Count > 0
+                ? paramNames
+                : new List<string> { "Revit Type Name", "FamilyName + TypeName" };
+
+            TypeSourceCombo.ItemsSource = items;
+            int idx = items.IndexOf(current);
+            TypeSourceCombo.SelectedIndex = idx >= 0 ? idx : 0;
+        }
+
+        private void TypeSourceCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            _currentTypeSourceParam = TypeSourceCombo.SelectedItem as string ?? "Revit Type Name";
+        }
+
+        private void SaveMappings_Click(object sender, RoutedEventArgs e)
+        {
+            if (_typeRows == null || !_typeRows.Any(r => !string.IsNullOrWhiteSpace(r.L1Code)))
+            {
+                MessageBox.Show("No rows with L1 codes to save.",
+                    "Save Mappings", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            _saveMappingsHandler.Rows     = _typeRows;
+            TypeNumberStatusText.Text     = "Saving mappings…";
+            SaveMappingsButton.IsEnabled  = false;
+            _saveMappingsEvent.Raise();
+        }
+
+        private void PreviewTypeNumbers_Click(object sender, RoutedEventArgs e)        {
             if (_typeRows == null || _typeRows.Count == 0)
             {
                 MessageBox.Show("Please load types from selection first.",
@@ -702,8 +778,8 @@ namespace RB_TypeName.UI
                 "Export Mapping Excel",
                 "Which rows do you want to export?",
                 "All rows",
-                "Only unmapped rows (no L1 code set)",
-                "Only mapped rows (L1 code already set)");
+                "Only unmapped rows (no saved or edited mapping)",
+                "Only mapped rows (saved or edited)");
             if (modeChoice == null) return;
 
             var exportMode = modeChoice.Contains("unmapped") ? TypeNumberExcelExportMode.OnlyUnmapped
@@ -719,11 +795,11 @@ namespace RB_TypeName.UI
             };
             if (dlg.ShowDialog() != true) return;
 
+            // Notes come from the ExtStorage blob.  We don't have direct access here
+            // (ExtStorage requires a Revit API call), so pass an empty dictionary —
+            // Notes will be empty in the export but the L1Code column is already on the rows.
             var existingMappings = new Dictionary<string, TypeNumberMappingRecord>(
                 StringComparer.OrdinalIgnoreCase);
-            if (_mappingStorage != null)
-                foreach (var r in _mappingStorage.AllRecords)
-                    existingMappings[r.MatchKey] = r;
 
             var (success, error) = TypeNumberMappingExcelService.Export(
                 _typeRows, exportMode, dlg.FileName, existingMappings);
@@ -772,46 +848,38 @@ namespace RB_TypeName.UI
 
             bool overwrite = modeChoice.StartsWith("Override");
 
-            if (_mappingStorage == null)
-            {
-                string storagePath = TypeNumberMappingStorageService
-                    .GetStorageFilePath(SettingsFolder, _currentDocPath);
-                _mappingStorage = TypeNumberMappingStorageService.Load(storagePath);
-            }
-
-            int upserted   = 0;
-            int notUpdated = 0;
-            foreach (var rec in records)
-            {
-                if (_mappingStorage.Upsert(rec, overwrite)) upserted++;
-                else notUpdated++;
-            }
-            _mappingStorage.Save();
-
-            // Reapply to current grid rows.
+            // Apply imported records to the current grid rows.
             if (_typeRows != null)
             {
-                if (overwrite)
+                var importIndex = new Dictionary<string, TypeNumberMappingRecord>(
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (var rec in records)
+                    importIndex[rec.MatchKey] = rec;
+
+                foreach (var row in _typeRows)
                 {
-                    // Force-set L1Code from the newly stored values.
-                    foreach (var row in _typeRows)
-                    {
-                        var stored = _mappingStorage.TryGet(row.MatchKey);
-                        if (stored != null && !string.IsNullOrWhiteSpace(stored.L1Code))
-                            row.L1Code = stored.L1Code;
-                    }
+                    if (!importIndex.TryGetValue(row.MatchKey, out var rec)) continue;
+                    if (!overwrite && row.HasSavedMapping)                   continue;
+
+                    row.ApplyL1CodeFromMapping(rec.L1Code, "Imported",
+                        hasSavedMapping: false);
                 }
-                else
-                {
-                    _mappingStorage.ApplyToRows(_typeRows);
-                }
+
                 TypeNumbersGrid.ItemsSource = null;
                 TypeNumbersGrid.ItemsSource = _typeRows;
             }
 
+            // Persist imported records to ExtStorage via the save handler.
+            // Build combined list: imported records override/merge with current row L1Codes.
+            var rowsToSave = _typeRows ?? new List<TypeNumberPreviewRow>();
+            _saveMappingsHandler.Rows = rowsToSave
+                .Where(r => !string.IsNullOrWhiteSpace(r.L1Code))
+                .ToList();
+            _saveMappingsEvent.Raise();
+
             MessageBox.Show(
-                $"Import complete.\nSaved: {upserted}   Not updated: {notUpdated}" +
-                $"   Invalid: {result.Invalid}   Conflicts: {result.Conflicts}",
+                $"Import complete.\nImported: {records.Count}   Invalid: {result.Invalid}" +
+                $"   Conflicts: {result.Conflicts}",
                 "Import", MessageBoxButton.OK, MessageBoxImage.Information);
 
             if (result.Issues.Count > 0)

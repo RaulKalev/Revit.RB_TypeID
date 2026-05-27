@@ -42,7 +42,7 @@ namespace RB_TypeName.Services
                 if (_records.TryGetValue(row.MatchKey, out var rec)
                     && !string.IsNullOrWhiteSpace(rec.L1Code))
                 {
-                    row.L1Code = rec.L1Code;
+                    row.ApplyL1CodeFromMapping(rec.L1Code, "Saved", hasSavedMapping: true);
                 }
             }
         }
@@ -116,16 +116,34 @@ namespace RB_TypeName.Services
 
         private static TypeNumberMappingRecord ParseRecord(string json)
         {
-            return new TypeNumberMappingRecord
+            var r = new TypeNumberMappingRecord
             {
-                Category      = ReadField(json, "Category")      ?? string.Empty,
-                FamilyName    = ReadField(json, "FamilyName")    ?? string.Empty,
-                RevitTypeName = ReadField(json, "RevitTypeName") ?? string.Empty,
-                RbrPrCode     = ReadField(json, "RbrPrCode")     ?? string.Empty,
-                L1Code        = ReadField(json, "L1Code")        ?? string.Empty,
-                Notes         = ReadField(json, "Notes")         ?? string.Empty,
-                UpdatedUtc    = ReadField(json, "UpdatedUtc")    ?? string.Empty,
+                // New key fields
+                DisciplineCode          = ReadField(json, "DisciplineCode")          ?? string.Empty,
+                RbrPrCode               = ReadField(json, "RbrPrCode")               ?? string.Empty,
+                TypeSourceParameterName = ReadField(json, "TypeSourceParameterName") ?? string.Empty,
+                TypeSourceValue         = ReadField(json, "TypeSourceValue")         ?? string.Empty,
+                // Display context
+                Category                = ReadField(json, "Category")                ?? string.Empty,
+                FamilyName              = ReadField(json, "FamilyName")              ?? string.Empty,
+                RevitTypeName           = ReadField(json, "RevitTypeName")           ?? string.Empty,
+                // Mapping value
+                L1Code                  = ReadField(json, "L1Code")                  ?? string.Empty,
+                Notes                   = ReadField(json, "Notes")                   ?? string.Empty,
+                // Timestamps
+                CreatedUtc              = ReadField(json, "CreatedUtc")              ?? string.Empty,
+                UpdatedUtc              = ReadField(json, "UpdatedUtc")              ?? string.Empty,
             };
+
+            // Auto-migrate old records that only have RevitTypeName but not the new key fields.
+            if (string.IsNullOrEmpty(r.TypeSourceParameterName)
+                && !string.IsNullOrEmpty(r.RevitTypeName))
+            {
+                r.TypeSourceParameterName = "Revit Type Name";
+                r.TypeSourceValue         = r.RevitTypeName;
+            }
+
+            return r;
         }
 
         private static string ReadField(string json, string key)
@@ -145,12 +163,16 @@ namespace RB_TypeName.Services
 
         private static string SerialiseRecord(TypeNumberMappingRecord r)
             => "{"
+               + $"\"DisciplineCode\":{Js(r.DisciplineCode)},"
+               + $"\"RbrPrCode\":{Js(r.RbrPrCode)},"
+               + $"\"TypeSourceParameterName\":{Js(r.TypeSourceParameterName)},"
+               + $"\"TypeSourceValue\":{Js(r.TypeSourceValue)},"
+               + $"\"L1Code\":{Js(r.L1Code)},"
+               + $"\"Notes\":{Js(r.Notes)},"
                + $"\"Category\":{Js(r.Category)},"
                + $"\"FamilyName\":{Js(r.FamilyName)},"
                + $"\"RevitTypeName\":{Js(r.RevitTypeName)},"
-               + $"\"RbrPrCode\":{Js(r.RbrPrCode)},"
-               + $"\"L1Code\":{Js(r.L1Code)},"
-               + $"\"Notes\":{Js(r.Notes)},"
+               + $"\"CreatedUtc\":{Js(r.CreatedUtc)},"
                + $"\"UpdatedUtc\":{Js(r.UpdatedUtc)}"
                + "}";
 

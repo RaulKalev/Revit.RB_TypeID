@@ -54,7 +54,8 @@ namespace RB_TypeName.Commands
                     App.ApplyHandler,   App.ApplyExternalEvent,
                     App.LoadTypesHandler,              App.LoadTypesExternalEvent,
                     App.PreviewTypeNumbersHandler,     App.PreviewTypeNumbersExternalEvent,
-                    App.ApplyTypeNumbersHandler,       App.ApplyTypeNumbersExternalEvent);
+                    App.ApplyTypeNumbersHandler,       App.ApplyTypeNumbersExternalEvent,
+                    App.SaveMappingsHandler,            App.SaveMappingsExternalEvent);
             _window.Closed += (s, args) => _window = null;
             _window.Show();
         }

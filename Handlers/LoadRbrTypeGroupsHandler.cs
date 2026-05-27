@@ -12,22 +12,44 @@ namespace RB_TypeName.Handlers
     /// Reads the current Revit selection, groups elements by ElementType, performs
     /// PBS lookup to prefill L1 codes and type number templates, and builds a
     /// TypeNumberPreviewRow list for the Type Numbers tab.
-    /// Does NOT write anything to the model.
+    /// Also loads saved L1Code mappings from Extensible Storage and applies them.
+    /// Saves current UI settings to Extensible Storage.
     /// </summary>
     public class LoadRbrTypeGroupsHandler : IExternalEventHandler
     {
         // ── Input — set from UI thread before Raise() ────────────────────────
 
-        public PbsPrCodeLookupService              LookupService      { get; set; }
-        public Dictionary<string, PbsTypeNumberRow> TypeNumberLookup  { get; set; }
+        public PbsPrCodeLookupService               LookupService      { get; set; }
+        public Dictionary<string, PbsTypeNumberRow>  TypeNumberLookup  { get; set; }
 
         /// <summary>When non-empty, only types whose PBS DisciplineCode matches are included.</summary>
         public string SelectedDiscipline { get; set; }
 
+        /// <summary>
+        /// Parameter name that identifies the "type" within a type group.
+        /// Special values: "Revit Type Name" (default), "FamilyName + TypeName".
+        /// Any other value is treated as a parameter name to look up on the element.
+        /// </summary>
+        public string TypeSourceParameterName { get; set; } = "Revit Type Name";
+
+        /// <summary>Folder containing old per-document NDJSON mapping files (for migration).</summary>
+        public string SettingsFolder { get; set; }
+
+        // ── Output — read by the UI callback ─────────────────────────────────
+
+        /// <summary>
+        /// Parameter names discovered from the loaded elements.
+        /// Always starts with "Revit Type Name" and "FamilyName + TypeName".
+        /// </summary>
+        public List<string> DiscoveredParameterNames { get; private set; } = new List<string>();
+
+        /// <summary>Settings restored from Extensible Storage (null if none saved).</summary>
+        public TypeNumberSettings RestoredSettings { get; private set; }
+
         // ── Output callback — dispatched to UI thread ─────────────────────────
 
-        /// <summary>Invoked with (rows, documentPath) after the handler completes.</summary>
-        public Action<List<TypeNumberPreviewRow>, string> OnCompleted { get; set; }
+        /// <summary>Invoked with (rows, documentPath, discoveredParamNames) after completion.</summary>
+        public Action<List<TypeNumberPreviewRow>, string, List<string>> OnCompleted { get; set; }
 
         // ── IExternalEventHandler ─────────────────────────────────────────────
 
@@ -41,9 +63,16 @@ namespace RB_TypeName.Handlers
                 var doc         = uidoc.Document;
                 var selectedIds = uidoc.Selection.GetElementIds().ToList();
 
+                // Load + save settings from/to Extensible Storage.
+                RestoredSettings = TypeNumberSettingsStorageService.Load(doc);
+                TrySaveSettings(doc);
+
+                string docPath = doc.PathName ?? doc.Title ?? "default";
+
                 if (selectedIds.Count == 0)
                 {
-                    OnCompleted?.Invoke(result, doc.PathName ?? doc.Title ?? "default");
+                    DiscoveredParameterNames = DefaultParamNames();
+                    OnCompleted?.Invoke(result, docPath, DiscoveredParameterNames);
                     return;
                 }
 
@@ -64,7 +93,12 @@ namespace RB_TypeName.Handlers
                     list.Add(element);
                 }
 
+                // ── Discover parameter names from a sample of elements ─────────
+                DiscoveredParameterNames = DiscoverParameterNames(groups, doc);
+
                 // ── Build one preview row per type ────────────────────────────
+                string typeSourceParam = TypeSourceParameterName ?? "Revit Type Name";
+
                 foreach (var kv in groups)
                 {
                     var first    = kv.Value[0];
@@ -72,7 +106,7 @@ namespace RB_TypeName.Handlers
                     var elemType = doc.GetElement(typeId) as ElementType;
                     if (elemType == null) continue;
 
-                    var row = BuildRow(elemType, kv.Value, doc);
+                    var row = BuildRow(elemType, kv.Value, doc, typeSourceParam);
 
                     // Apply discipline filter when set.
                     if (!string.IsNullOrWhiteSpace(SelectedDiscipline)
@@ -89,6 +123,31 @@ namespace RB_TypeName.Handlers
                     .ThenBy(r => r.FamilyName)
                     .ThenBy(r => r.TypeName)
                     .ToList();
+
+                // ── Load saved mappings from Extensible Storage ───────────────
+                var savedMappings = TypeNumberMappingExtensibleStorageService.Load(doc);
+
+                // If no ExtStorage mappings, try migration from old local NDJSON.
+                if (savedMappings.Count == 0 && !string.IsNullOrWhiteSpace(SettingsFolder))
+                {
+                    string oldNdjson = TypeNumberMappingStorageService
+                        .GetStorageFilePath(SettingsFolder, docPath);
+                    var migrated = TypeNumberMappingExtensibleStorageService
+                        .MigrateFromLocalNdjson(oldNdjson);
+
+                    if (migrated.Count > 0)
+                    {
+                        // Apply migrated records directly to rows using fuzzy match (RbrPrCode + TypeName).
+                        ApplyMigratedMappings(result, migrated);
+
+                        // Persist migrated records to ExtStorage.
+                        TrySaveMigratedMappings(doc, migrated);
+                    }
+                }
+                else
+                {
+                    TypeNumberMappingExtensibleStorageService.ApplyToRows(result, savedMappings);
+                }
             }
             catch (Exception ex)
             {
@@ -99,26 +158,176 @@ namespace RB_TypeName.Handlers
                 });
             }
 
-            string docPath = app.ActiveUIDocument?.Document?.PathName
+            string completedDocPath = app.ActiveUIDocument?.Document?.PathName
                 ?? app.ActiveUIDocument?.Document?.Title
                 ?? "default";
-            OnCompleted?.Invoke(result, docPath);
+            OnCompleted?.Invoke(result, completedDocPath, DiscoveredParameterNames);
         }
 
         public string GetName() => "Load RBR Type Groups";
 
-        // ── Private ──────────────────────────────────────────────────────────
+        // ── Private — settings ────────────────────────────────────────────────
+
+        private void TrySaveSettings(Document doc)
+        {
+            try
+            {
+                using var t = new Transaction(doc, "Save RBR Type Number Settings");
+                t.Start();
+                TypeNumberSettingsStorageService.Save(doc, new TypeNumberSettings
+                {
+                    SelectedTypeSourceParameterName = TypeSourceParameterName ?? "Revit Type Name",
+                    SelectedDisciplineCode          = SelectedDiscipline ?? string.Empty,
+                });
+                t.Commit();
+            }
+            catch { /* non-critical */ }
+        }
+
+        private void TrySaveMigratedMappings(Document doc,
+            IEnumerable<TypeNumberMappingRecord> records)
+        {
+            try
+            {
+                using var t = new Transaction(doc, "Migrate RBR Type Number Mappings");
+                t.Start();
+                TypeNumberMappingExtensibleStorageService.Save(doc, records);
+                t.Commit();
+            }
+            catch { /* non-critical */ }
+        }
+
+        // ── Private — parameter discovery ────────────────────────────────────
+
+        private List<string> DiscoverParameterNames(
+            Dictionary<string, List<Element>> groups, Document doc)
+        {
+            var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            int sampled = 0;
+
+            foreach (var kv in groups)
+            {
+                var inst = kv.Value.First();
+
+                // Instance parameters.
+                foreach (Parameter p in inst.Parameters)
+                {
+                    if (p.StorageType == StorageType.String)
+                        names.Add(p.Definition.Name);
+                }
+
+                // Type parameters.
+                var typeId   = inst.GetTypeId();
+                if (typeId != null && typeId != ElementId.InvalidElementId)
+                {
+                    var elemType = doc.GetElement(typeId) as ElementType;
+                    if (elemType != null)
+                    {
+                        foreach (Parameter p in elemType.Parameters)
+                        {
+                            if (p.StorageType == StorageType.String)
+                                names.Add(p.Definition.Name);
+                        }
+                    }
+                }
+
+                if (++sampled >= 10) break;
+            }
+
+            var result = DefaultParamNames();
+            result.AddRange(names
+                .Where(n =>
+                    !string.Equals(n, "Revit Type Name",      StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(n, "FamilyName + TypeName", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(n => n));
+            return result;
+        }
+
+        private static List<string> DefaultParamNames()
+            => new List<string> { "Revit Type Name", "FamilyName + TypeName" };
+
+        // ── Private — type source value ────────────────────────────────────────
+
+        private static string ReadTypeSourceValue(
+            string paramName, ElementType elemType, List<Element> instances)
+        {
+            if (string.IsNullOrWhiteSpace(paramName)
+                || string.Equals(paramName, "Revit Type Name",
+                    StringComparison.OrdinalIgnoreCase))
+                return elemType.Name ?? string.Empty;
+
+            if (string.Equals(paramName, "FamilyName + TypeName",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                string fam = (elemType is FamilySymbol fs)
+                    ? fs.FamilyName
+                    : elemType.Category?.Name ?? string.Empty;
+                return fam + " : " + (elemType.Name ?? string.Empty);
+            }
+
+            // Type-level parameter.
+            var p = elemType.LookupParameter(paramName);
+            if (p != null)
+            {
+                string v = p.AsString() ?? p.AsValueString();
+                if (!string.IsNullOrWhiteSpace(v)) return v;
+            }
+
+            // Fall back to instance-level parameter.
+            foreach (var inst in instances)
+            {
+                p = inst.LookupParameter(paramName);
+                if (p != null)
+                {
+                    string v = p.AsString() ?? p.AsValueString();
+                    if (!string.IsNullOrWhiteSpace(v)) return v;
+                }
+            }
+
+            return string.Empty;
+        }
+
+        // ── Private — migration fuzzy-match ───────────────────────────────────
+
+        private static void ApplyMigratedMappings(
+            List<TypeNumberPreviewRow> rows,
+            List<TypeNumberMappingRecord> migrated)
+        {
+            // Index old records by RbrPrCode + TypeSourceValue for fuzzy lookup.
+            var index = new Dictionary<string, TypeNumberMappingRecord>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var r in migrated)
+            {
+                string k = Norm(r.RbrPrCode) + "|" + Norm(r.TypeSourceValue);
+                if (!index.ContainsKey(k)) index[k] = r;
+            }
+
+            foreach (var row in rows)
+            {
+                if (!string.IsNullOrWhiteSpace(row.L1Code)) continue;
+                string key = Norm(row.RbrPrCode) + "|" + Norm(row.TypeSourceValue);
+                if (index.TryGetValue(key, out var rec) && !string.IsNullOrWhiteSpace(rec.L1Code))
+                    row.ApplyL1CodeFromMapping(rec.L1Code, "Migrated", hasSavedMapping: true);
+            }
+        }
+
+        private static string Norm(string s) => (s ?? string.Empty).Trim().ToUpperInvariant();
+
+        // ── Private — BuildRow ────────────────────────────────────────────────
 
         private TypeNumberPreviewRow BuildRow(
-            ElementType elemType, List<Element> instances, Document doc)
+            ElementType elemType, List<Element> instances, Document doc,
+            string typeSourceParam)
         {
             var row = new TypeNumberPreviewRow
             {
-                ElementTypeId = elemType.Id,
-                Category      = elemType.Category?.Name ?? string.Empty,
-                FamilyName    = (elemType is FamilySymbol fs) ? fs.FamilyName : string.Empty,
-                TypeName      = elemType.Name ?? string.Empty,
-                InstanceCount = instances.Count,
+                ElementTypeId         = elemType.Id,
+                Category              = elemType.Category?.Name ?? string.Empty,
+                FamilyName            = (elemType is FamilySymbol fs) ? fs.FamilyName : string.Empty,
+                TypeName              = elemType.Name ?? string.Empty,
+                InstanceCount         = instances.Count,
+                TypeSourceParameterName = typeSourceParam,
+                TypeSourceValue       = ReadTypeSourceValue(typeSourceParam, elemType, instances),
             };
 
             // ── Read PrCode from representative instance ──────────────────────
@@ -137,7 +346,6 @@ namespace RB_TypeName.Handlers
                     .Replace("\u00A0", " ")
                     .ToUpperInvariant();
 
-                // Type-number template lookup.
                 if (TypeNumberLookup != null
                     && TypeNumberLookup.TryGetValue(normalized, out var tnRow))
                 {
@@ -145,29 +353,31 @@ namespace RB_TypeName.Handlers
                     row.PbsTypeTemplate = tnRow.TypeNumberTemplate ?? string.Empty;
                     row.PbsMatchStatus  = "Matched";
 
-                    // Prefill L1Code: prefix before ZZZZ if template exists, else ObjectCode.
+                    // PBS prefill: use ApplyL1CodeFromPbs so it sets MappingStatus = "PBS suggestion"
+                    // without overwriting any subsequently-loaded saved mapping.
+                    string pbsL1;
                     if (!string.IsNullOrWhiteSpace(row.PbsTypeTemplate)
                         && row.PbsTypeTemplate.IndexOf("ZZZZ",
                             StringComparison.OrdinalIgnoreCase) >= 0)
                     {
-                        int idx   = row.PbsTypeTemplate.IndexOf("ZZZZ",
+                        int idx = row.PbsTypeTemplate.IndexOf("ZZZZ",
                             StringComparison.OrdinalIgnoreCase);
-                        row.L1Code = row.PbsTypeTemplate.Substring(0, idx);
+                        pbsL1 = row.PbsTypeTemplate.Substring(0, idx);
                     }
                     else
                     {
-                        row.L1Code = tnRow.ObjectCode ?? string.Empty;
+                        pbsL1 = tnRow.ObjectCode ?? string.Empty;
                     }
+                    row.ApplyL1CodeFromPbs(pbsL1);
                 }
                 else if (LookupService != null)
                 {
-                    // No type-number row; fall back to PrCode → R/S lookup for discipline.
                     var lookup = LookupService.FindByPrCode(prCode);
                     if (lookup.Success && lookup.Row != null)
                     {
                         row.DisciplineCode = lookup.Row.ObjectIdPart1 ?? string.Empty;
                         row.PbsMatchStatus = "Matched (no template)";
-                        row.L1Code         = lookup.Row.ObjectIdPart2 ?? string.Empty;
+                        row.ApplyL1CodeFromPbs(lookup.Row.ObjectIdPart2 ?? string.Empty);
                     }
                     else
                     {
@@ -182,7 +392,6 @@ namespace RB_TypeName.Handlers
             else
             {
                 row.PbsMatchStatus = "Missing RBR_Pr_Code";
-                // Don't hard-block — user can still fill L1Code manually.
             }
 
             // ── Read existing type number parameter ───────────────────────────
@@ -213,7 +422,6 @@ namespace RB_TypeName.Handlers
                 return row;
             }
 
-            // Leave Status blank until Preview is run; let the user fill L1Code first.
             row.IsSelected = true;
             return row;
         }

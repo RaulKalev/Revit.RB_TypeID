@@ -25,8 +25,23 @@ namespace RB_TypeName.Services
 
     /// <summary>
     /// Exports/imports the Type Number mapping grid to/from an xlsx file using direct
-    /// ZIP+XML (no external NuGet dependencies). Column I (RBR_ObjectID_Character_Level1)
-    /// and column N (Notes) are the only user-editable fields.
+    /// ZIP+XML (no external NuGet dependencies).
+    ///
+    /// New 14-column schema (v2):
+    ///   A  DisciplineCode                  read-only
+    ///   B  RBR_Pr_Code                     read-only
+    ///   C  TypeSourceParameterName         read-only
+    ///   D  TypeSourceValue                 read-only
+    ///   E  RBR_ObjectID_Character_Level1   ← EDITABLE
+    ///   F  Existing_RBR_Type_number        read-only
+    ///   G  Proposed_RBR_Type_number        read-only
+    ///   H  Category                        read-only
+    ///   I  FamilyName                      read-only
+    ///   J  RevitTypeName                   read-only
+    ///   K  ElementTypeId                   read-only
+    ///   L  MappingStatus                   read-only
+    ///   M  Message                         read-only
+    ///   N  Notes                           ← EDITABLE
     /// </summary>
     public static class TypeNumberMappingExcelService
     {
@@ -36,24 +51,25 @@ namespace RB_TypeName.Services
 
         private static readonly string[] Headers =
         {
-            "Category",                          // A 1
-            "FamilyName",                        // B 2
-            "RevitTypeName",                     // C 3
-            "RBR_Pr_Code",                       // D 4
-            "DisciplineCode",                    // E 5
-            "PBS_Template",                      // F 6
-            "Existing_RBR_Type_number",          // G 7
-            "Proposed_RBR_Type_number",          // H 8
-            "RBR_ObjectID_Character_Level1",     // I 9  ← editable
-            "PBS_Match_Status",                  // J 10
-            "Status",                            // K 11
-            "Message",                           // L 12
-            "Notes",                             // M 13 ← editable
+            "DisciplineCode",                    // A  1
+            "RBR_Pr_Code",                       // B  2
+            "TypeSourceParameterName",           // C  3
+            "TypeSourceValue",                   // D  4
+            "RBR_ObjectID_Character_Level1",     // E  5  ← editable
+            "Existing_RBR_Type_number",          // F  6
+            "Proposed_RBR_Type_number",          // G  7
+            "Category",                          // H  8
+            "FamilyName",                        // I  9
+            "RevitTypeName",                     // J  10
+            "ElementTypeId",                     // K  11
+            "MappingStatus",                     // L  12
+            "Message",                           // M  13
+            "Notes",                             // N  14 ← editable
         };
 
         // Column indices (1-based)
-        private const int ColL1Code = 9;   // I
-        private const int ColNotes  = 13;  // M
+        private const int ColL1Code = 5;    // E
+        private const int ColNotes  = 14;   // N
 
         // ── Public: Export ───────────────────────────────────────────────────
 
@@ -69,9 +85,9 @@ namespace RB_TypeName.Services
             IEnumerable<TypeNumberPreviewRow> toExport = mode switch
             {
                 TypeNumberExcelExportMode.OnlyUnmapped =>
-                    rows.Where(r => string.IsNullOrWhiteSpace(r.L1Code)),
+                    rows.Where(r => !r.HasSavedMapping && !r.HasUserEditedMapping),
                 TypeNumberExcelExportMode.OnlyMapped =>
-                    rows.Where(r => !string.IsNullOrWhiteSpace(r.L1Code)),
+                    rows.Where(r => r.HasSavedMapping || r.HasUserEditedMapping),
                 _ => rows,
             };
 
@@ -81,7 +97,6 @@ namespace RB_TypeName.Services
 
             try
             {
-                // Build data rows
                 var data = new List<string[]>();
                 foreach (var row in filtered)
                 {
@@ -92,19 +107,20 @@ namespace RB_TypeName.Services
 
                     data.Add(new[]
                     {
-                        row.Category,                     // A
-                        row.FamilyName,                   // B
-                        row.TypeName,                     // C
-                        row.RbrPrCode,                    // D
-                        row.DisciplineCode,               // E
-                        row.PbsTypeTemplate,              // F
-                        row.ExistingTypeNumber,           // G
-                        row.ProposedTypeNumber,           // H
-                        row.L1Code,                       // I
-                        row.PbsMatchStatus,               // J
-                        row.Status,                       // K
-                        row.Message,                      // L
-                        notes,                            // M
+                        row.DisciplineCode,               // A
+                        row.RbrPrCode,                    // B
+                        row.TypeSourceParameterName,      // C
+                        row.TypeSourceValue,              // D
+                        row.L1Code,                       // E  ← editable
+                        row.ExistingTypeNumber,           // F
+                        row.ProposedTypeNumber,           // G
+                        row.Category,                     // H
+                        row.FamilyName,                   // I
+                        row.TypeName,                     // J
+                        row.ElementTypeIdValue.ToString(),// K
+                        row.MappingStatus,                // L
+                        row.Message,                      // M
+                        notes,                            // N  ← editable
                     });
                 }
 
@@ -161,8 +177,8 @@ namespace RB_TypeName.Services
                 if (xlRows.Count < 2)
                     return (null, null, "The mapping sheet contains no data rows.");
 
-                // ── Locate header row (first row) ─────────────────────────────
-                var headerRow = xlRows[0];
+                // ── Locate header row ─────────────────────────────────────────
+                var headerRow   = xlRows[0];
                 var headerCells = headerRow.Elements(ns + "c")
                     .ToDictionary(
                         c => ParseColIndex(c.Attribute("r")?.Value),
@@ -175,7 +191,10 @@ namespace RB_TypeName.Services
                 // ── Validate required headers ─────────────────────────────────
                 var required = new[]
                 {
-                    "Category", "FamilyName", "RevitTypeName",
+                    "DisciplineCode",
+                    "RBR_Pr_Code",
+                    "TypeSourceParameterName",
+                    "TypeSourceValue",
                     "RBR_ObjectID_Character_Level1",
                 };
 
@@ -185,16 +204,19 @@ namespace RB_TypeName.Services
                         "Import failed. Missing required columns:\n- "
                         + string.Join("\n- ", missing));
 
-                // Optional columns (graceful fallback when absent)
-                int colCat      = colMap.TryGetValue("Category",                     out int v) ? v : -1;
-                int colFamily   = colMap.TryGetValue("FamilyName",                   out v)     ? v : -1;
-                int colType     = colMap.TryGetValue("RevitTypeName",                out v)     ? v : -1;
-                int colPrCode   = colMap.TryGetValue("RBR_Pr_Code",                  out v)     ? v : -1;
-                int colL1       = colMap["RBR_ObjectID_Character_Level1"];
-                int colNotes    = colMap.TryGetValue("Notes",                         out v)     ? v : -1;
+                int colDiscipline = colMap["DisciplineCode"];
+                int colPrCode     = colMap["RBR_Pr_Code"];
+                int colParamName  = colMap["TypeSourceParameterName"];
+                int colParamValue = colMap["TypeSourceValue"];
+                int colL1         = colMap["RBR_ObjectID_Character_Level1"];
+
+                // Optional context columns.
+                int colCat      = colMap.TryGetValue("Category",     out int v) ? v : -1;
+                int colFamily   = colMap.TryGetValue("FamilyName",   out v)     ? v : -1;
+                int colTypeName = colMap.TryGetValue("RevitTypeName", out v)    ? v : -1;
+                int colNotes    = colMap.TryGetValue("Notes",         out v)    ? v : -1;
 
                 // ── Parse data rows ───────────────────────────────────────────
-                // Detect duplicates by match key within the import file.
                 var seen       = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
                 var rawRecords = new List<TypeNumberMappingRecord>();
 
@@ -204,18 +226,25 @@ namespace RB_TypeName.Services
                         .ToDictionary(c => ParseColIndex(c.Attribute("r")?.Value),
                                       c => GetCellValue(c, sharedStrings) ?? string.Empty);
 
-                    string cat      = GetCol(cells, colCat);
-                    string family   = GetCol(cells, colFamily);
-                    string typeName = GetCol(cells, colType);
-                    string prCode   = GetCol(cells, colPrCode);
-                    string l1Raw    = GetCol(cells, colL1);
-                    string notes    = GetCol(cells, colNotes);
+                    string discipline = GetCol(cells, colDiscipline);
+                    string prCode     = GetCol(cells, colPrCode);
+                    string paramName  = GetCol(cells, colParamName);
+                    string paramValue = GetCol(cells, colParamValue);
+                    string l1Raw      = GetCol(cells, colL1);
+                    string cat        = GetCol(cells, colCat);
+                    string family     = GetCol(cells, colFamily);
+                    string typeName   = GetCol(cells, colTypeName);
+                    string notes      = GetCol(cells, colNotes);
 
-                    if (string.IsNullOrWhiteSpace(typeName)
+                    // Validate key presence.
+                    if (string.IsNullOrWhiteSpace(paramName)
+                        || string.IsNullOrWhiteSpace(paramValue)
                         || string.IsNullOrWhiteSpace(l1Raw))
                     {
                         result.Invalid++;
-                        result.Issues.Add($"Row {i + 1}: missing RevitTypeName or L1 code — skipped.");
+                        result.Issues.Add(
+                            $"Row {i + 1}: missing TypeSourceParameterName, TypeSourceValue, "
+                            + "or L1 code — skipped.");
                         continue;
                     }
 
@@ -224,22 +253,26 @@ namespace RB_TypeName.Services
                     if (!Regex.IsMatch(l1, @"^[A-Z0-9_\-]+$"))
                     {
                         result.Invalid++;
-                        result.Issues.Add($"Row {i + 1}: invalid L1 code '{l1Raw}' — skipped.");
+                        result.Issues.Add(
+                            $"Row {i + 1}: invalid L1 code '{l1Raw}' — skipped.");
                         continue;
                     }
 
                     var rec = new TypeNumberMappingRecord
                     {
-                        Category      = cat.Trim(),
-                        FamilyName    = family.Trim(),
-                        RevitTypeName = typeName.Trim(),
-                        RbrPrCode     = prCode.Trim(),
-                        L1Code        = l1,
-                        Notes         = notes.Trim(),
+                        DisciplineCode          = discipline.Trim(),
+                        RbrPrCode               = prCode.Trim(),
+                        TypeSourceParameterName = paramName.Trim(),
+                        TypeSourceValue         = paramValue.Trim(),
+                        L1Code                  = l1,
+                        Notes                   = notes.Trim(),
+                        Category                = cat.Trim(),
+                        FamilyName              = family.Trim(),
+                        RevitTypeName           = typeName.Trim(),
+                        UpdatedUtc              = DateTime.UtcNow.ToString("o"),
                     };
 
                     string key = rec.MatchKey;
-
                     if (!seen.TryGetValue(key, out var l1List))
                         seen[key] = l1List = new List<string>();
 
@@ -248,31 +281,32 @@ namespace RB_TypeName.Services
                 }
 
                 // ── Detect conflicting duplicates ─────────────────────────────
-                var finalRecords  = new List<TypeNumberMappingRecord>();
-                var conflictKeys  = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var finalRecords = new List<TypeNumberMappingRecord>();
+                var conflictKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
                 foreach (var kv in seen.Where(x => x.Value.Count > 1))
                 {
-                    bool allSame = kv.Value.Distinct(StringComparer.OrdinalIgnoreCase).Count() == 1;
+                    bool allSame = kv.Value.Distinct(
+                        StringComparer.OrdinalIgnoreCase).Count() == 1;
                     if (!allSame)
                     {
                         conflictKeys.Add(kv.Key);
                         result.Conflicts++;
-                        result.Issues.Add($"Conflicting duplicate key: '{kv.Key}' — all rows skipped.");
+                        result.Issues.Add(
+                            $"Conflicting duplicate key: '{kv.Key}' — all rows skipped.");
                     }
                     else
                     {
-                        // All duplicates agree on L1 code — keep just one.
-                        result.Issues.Add($"Duplicate key (identical values): '{kv.Key}' — accepted once.");
+                        result.Issues.Add(
+                            $"Duplicate key (identical values): '{kv.Key}' — accepted once.");
                     }
                 }
 
-                // Deduplicate keeping only first occurrence per key, exclude conflicts.
                 var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var rec in rawRecords)
                 {
-                    if (conflictKeys.Contains(rec.MatchKey))   continue;
-                    if (!seenKeys.Add(rec.MatchKey))           continue;
+                    if (conflictKeys.Contains(rec.MatchKey)) continue;
+                    if (!seenKeys.Add(rec.MatchKey))         continue;
                     finalRecords.Add(rec);
                 }
 

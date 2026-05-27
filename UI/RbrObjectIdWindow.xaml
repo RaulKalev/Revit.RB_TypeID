@@ -235,84 +235,85 @@
                     </Grid.RowDefinitions>
 
                     <!-- ── Type Numbers Toolbar ──────────────────────────── -->
-                    <Grid Grid.Row="0" Margin="0,0,0,8">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="140" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*"    />
-                        </Grid.ColumnDefinitions>
+                    <StackPanel Grid.Row="0" Orientation="Vertical" Margin="0,0,0,8">
 
-                        <TextBlock Grid.Column="0"
-                                   Text="Discipline:"
-                                   VerticalAlignment="Center"
-                                   Margin="0,0,6,0" />
-                        <ComboBox x:Name="DisciplineCombo"
-                                  Grid.Column="1"
-                                  Height="28"
-                                  VerticalContentAlignment="Center"
-                                  SelectionChanged="DisciplineCombo_SelectionChanged" />
+                        <!-- Filter row: Discipline + Type Source -->
+                        <StackPanel Orientation="Horizontal" Margin="0,0,0,5">
+                            <TextBlock Text="Discipline:"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,6,0" />
+                            <ComboBox x:Name="DisciplineCombo"
+                                      Width="140" Height="26"
+                                      VerticalContentAlignment="Center"
+                                      Margin="0,0,14,0"
+                                      SelectionChanged="DisciplineCombo_SelectionChanged" />
 
-                        <Button x:Name="LoadTypesButton"
-                                Grid.Column="2"
-                                Content="Load Types from Selection"
-                                Width="170" Height="28"
-                                Margin="8,0,6,0"
-                                FontSize="12"
-                                Click="LoadTypes_Click" />
-                        <Button x:Name="ExportMappingButton"
-                                Grid.Column="3"
-                                Content="Export Mapping…"
-                                Width="130" Height="28"
-                                Margin="0,0,6,0"
-                                FontSize="12"
-                                IsEnabled="False"
-                                Click="ExportMapping_Click" />
-                        <Button x:Name="ImportMappingButton"
-                                Grid.Column="4"
-                                Content="Import Mapping…"
-                                Width="130" Height="28"
-                                Margin="0,0,6,0"
-                                FontSize="12"
-                                Click="ImportMapping_Click" />
-                        <Button x:Name="PreviewTypeNumbersButton"
-                                Grid.Column="5"
-                                Content="Preview Type Numbers"
-                                Width="155" Height="28"
-                                Margin="0,0,6,0"
-                                FontSize="12"
-                                IsEnabled="False"
-                                Click="PreviewTypeNumbers_Click" />
-                        <Button x:Name="ApplyTypeNumbersButton"
-                                Grid.Column="6"
-                                Content="Apply Type Numbers"
-                                Width="140" Height="28"
-                                Margin="0,0,6,0"
-                                FontSize="12"
-                                IsEnabled="False"
-                                Click="ApplyTypeNumbers_Click" />
-                        <Button x:Name="ExportTypeNumbersButton"
-                                Grid.Column="7"
-                                Content="Export Report"
-                                Width="105" Height="28"
-                                Margin="0,0,6,0"
-                                FontSize="12"
-                                IsEnabled="False"
-                                Click="ExportTypeNumbers_Click" />
+                            <TextBlock Text="Type source:"
+                                       VerticalAlignment="Center"
+                                       Margin="0,0,6,0" />
+                            <ComboBox x:Name="TypeSourceCombo"
+                                      Width="210" Height="26"
+                                      VerticalContentAlignment="Center"
+                                      SelectionChanged="TypeSourceCombo_SelectionChanged" />
+                        </StackPanel>
 
-                        <TextBlock x:Name="TypeNumberStatusText"
-                                   Grid.Column="8"
-                                   Margin="8,0,0,0"
-                                   VerticalAlignment="Center"
-                                   Foreground="Gray"
-                                   FontStyle="Italic"
-                                   FontSize="11" />
-                    </Grid>
+                        <!-- Button row -->
+                        <StackPanel Orientation="Horizontal">
+                            <Button x:Name="LoadTypesButton"
+                                    Content="Load Types from Selection"
+                                    Width="170" Height="26"
+                                    Margin="0,0,6,0"
+                                    FontSize="12"
+                                    Click="LoadTypes_Click" />
+                            <Button x:Name="SaveMappingsButton"
+                                    Content="Save Mappings"
+                                    Width="115" Height="26"
+                                    Margin="0,0,6,0"
+                                    FontSize="12"
+                                    IsEnabled="False"
+                                    Click="SaveMappings_Click" />
+                            <Button x:Name="ExportMappingButton"
+                                    Content="Export Mapping…"
+                                    Width="125" Height="26"
+                                    Margin="0,0,6,0"
+                                    FontSize="12"
+                                    IsEnabled="False"
+                                    Click="ExportMapping_Click" />
+                            <Button x:Name="ImportMappingButton"
+                                    Content="Import Mapping…"
+                                    Width="125" Height="26"
+                                    Margin="0,0,6,0"
+                                    FontSize="12"
+                                    Click="ImportMapping_Click" />
+                            <Button x:Name="PreviewTypeNumbersButton"
+                                    Content="Preview Type Numbers"
+                                    Width="155" Height="26"
+                                    Margin="0,0,6,0"
+                                    FontSize="12"
+                                    IsEnabled="False"
+                                    Click="PreviewTypeNumbers_Click" />
+                            <Button x:Name="ApplyTypeNumbersButton"
+                                    Content="Apply Type Numbers"
+                                    Width="140" Height="26"
+                                    Margin="0,0,6,0"
+                                    FontSize="12"
+                                    IsEnabled="False"
+                                    Click="ApplyTypeNumbers_Click" />
+                            <Button x:Name="ExportTypeNumbersButton"
+                                    Content="Export Report"
+                                    Width="105" Height="26"
+                                    Margin="0,0,6,0"
+                                    FontSize="12"
+                                    IsEnabled="False"
+                                    Click="ExportTypeNumbers_Click" />
+                            <TextBlock x:Name="TypeNumberStatusText"
+                                       VerticalAlignment="Center"
+                                       Margin="8,0,0,0"
+                                       Foreground="Gray"
+                                       FontStyle="Italic"
+                                       FontSize="11" />
+                        </StackPanel>
+                    </StackPanel>
 
                     <!-- ── Type Numbers Warnings ─────────────────────────── -->
                     <Border x:Name="TypeNumberWarningsBorder"
@@ -359,6 +360,10 @@
                                                 Binding="{Binding TypeName}"
                                                 IsReadOnly="True"
                                                 Width="150" />
+                            <DataGridTextColumn Header="Type Source Value"
+                                                Binding="{Binding TypeSourceValue}"
+                                                IsReadOnly="True"
+                                                Width="140" />
                             <DataGridTextColumn Header="Instances"
                                                 Binding="{Binding InstanceCount}"
                                                 IsReadOnly="True"
@@ -378,6 +383,10 @@
                             <DataGridTextColumn Header="L1 Code"
                                                 Binding="{Binding L1Code, Mode=TwoWay, UpdateSourceTrigger=LostFocus}"
                                                 Width="90" />
+                            <DataGridTextColumn Header="Mapping"
+                                                Binding="{Binding MappingStatus}"
+                                                IsReadOnly="True"
+                                                Width="100" />
                             <DataGridTextColumn Header="Existing Type#"
                                                 Binding="{Binding ExistingTypeNumber}"
                                                 IsReadOnly="True"
