@@ -103,24 +103,24 @@ namespace RB_TypeName.Handlers
                     row.Status = "Assigned";
                     assigned++;
 
-                    // Record in ledger.
-                    var typeEid = element.GetTypeId();
+                    // Record in ledger with a real fingerprint.
+                    var fp = BuildFingerprintFromAppliedRow(doc, element, row);
+
                     var record = new ObjectIdLedgerRecord
                     {
                         ObjectId        = row.ProposedObjectId,
                         ElementUniqueId = element.UniqueId ?? string.Empty,
                         ElementId       = row.ElementIdValue,
-                        RbrPrCode       = row.RbrPrCode,
-                        PbsPartR        = row.PbsPartR,
-                        PbsPartS        = row.PbsPartS,
-                        LevelCode       = row.LevelCode,
-                        Prefix          = $"{row.PbsPartR}-{row.PbsPartS}-{row.LevelCode}",
-                        Category        = row.Category,
-                        FamilyName      = (element as FamilyInstance)?.Symbol?.FamilyName ?? string.Empty,
-                        TypeId          = (typeEid != null && typeEid != ElementId.InvalidElementId)
-                                           ? typeEid.Value : 0L,
-                        TypeName        = doc.GetElement(typeEid)?.Name ?? string.Empty,
-                        Fingerprint     = string.Empty,
+                        RbrPrCode       = fp.RbrPrCode,
+                        PbsPartR        = fp.PbsPartR,
+                        PbsPartS        = fp.PbsPartS,
+                        LevelCode       = fp.LevelCode,
+                        Prefix          = fp.Prefix,
+                        Category        = fp.Category,
+                        FamilyName      = fp.FamilyName,
+                        TypeId          = fp.TypeId,
+                        TypeName        = fp.TypeName,
+                        Fingerprint     = fp.Fingerprint,
                         AssignedUtc     = now,
                         UpdatedUtc      = now,
                     };
@@ -140,5 +140,37 @@ namespace RB_TypeName.Handlers
         }
 
         public string GetName() => "Apply RBR Object IDs";
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        private static ObjectFingerprintInfo BuildFingerprintFromAppliedRow(
+            Document doc,
+            Element element,
+            ObjectIdPreviewRow row)
+        {
+            var typeId = element.GetTypeId();
+            long typeIdValue = (typeId != null && typeId != ElementId.InvalidElementId)
+                ? typeId.Value : 0L;
+
+            string typeName = typeIdValue != 0
+                ? doc.GetElement(typeId)?.Name ?? string.Empty
+                : string.Empty;
+
+            var info = new ObjectFingerprintInfo
+            {
+                RbrPrCode  = row.RbrPrCode ?? string.Empty,
+                PbsPartR   = row.PbsPartR ?? string.Empty,
+                PbsPartS   = row.PbsPartS ?? string.Empty,
+                LevelCode  = row.LevelCode ?? string.Empty,
+                Prefix     = $"{row.PbsPartR}-{row.PbsPartS}-{row.LevelCode}",
+                TypeId     = typeIdValue,
+                TypeName   = typeName,
+                Category   = element.Category?.Name ?? string.Empty,
+                FamilyName = (element as FamilyInstance)?.Symbol?.FamilyName ?? string.Empty,
+            };
+
+            info.Fingerprint = RbrObjectFingerprintService.BuildFingerprintString(info);
+            return info;
+        }
     }
 }

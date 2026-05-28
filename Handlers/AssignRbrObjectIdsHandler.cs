@@ -71,26 +71,23 @@ namespace RB_TypeName.Handlers
                     if (element == null) continue;
 
                     LevelCodeService.TryGetLevelCode(element, doc, out string levelCode);
-                    var typeEid = element.GetTypeId();
-                    string typeName = GetTypeName(element, doc);
-                    string prefix = $"{SelectedMapping.DisciplineCode}-{SelectedMapping.ObjectCode}-{levelCode}";
+                    var fp = BuildFingerprintFromManualAssign(doc, element, SelectedMapping, levelCode);
 
                     var record = new ObjectIdLedgerRecord
                     {
                         ObjectId        = r.NewValue,
                         ElementUniqueId = element.UniqueId ?? string.Empty,
                         ElementId       = r.ElementId.Value,
-                        RbrPrCode       = string.Empty, // not available in manual-assign path
-                        PbsPartR        = SelectedMapping.DisciplineCode,
-                        PbsPartS        = SelectedMapping.ObjectCode,
-                        LevelCode       = levelCode ?? string.Empty,
-                        Prefix          = prefix,
-                        Category        = element.Category?.Name ?? string.Empty,
-                        FamilyName      = (element as FamilyInstance)?.Symbol?.FamilyName ?? string.Empty,
-                        TypeId          = (typeEid != null && typeEid != ElementId.InvalidElementId)
-                                           ? typeEid.Value : 0L,
-                        TypeName        = typeName,
-                        Fingerprint     = string.Empty,
+                        RbrPrCode       = fp.RbrPrCode,
+                        PbsPartR        = fp.PbsPartR,
+                        PbsPartS        = fp.PbsPartS,
+                        LevelCode       = fp.LevelCode,
+                        Prefix          = fp.Prefix,
+                        Category        = fp.Category,
+                        FamilyName      = fp.FamilyName,
+                        TypeId          = fp.TypeId,
+                        TypeName        = fp.TypeName,
+                        Fingerprint     = fp.Fingerprint,
                         AssignedUtc     = now,
                         UpdatedUtc      = now,
                     };
@@ -116,12 +113,35 @@ namespace RB_TypeName.Handlers
 
         // ── Helpers ──────────────────────────────────────────────────────────
 
-        private static string GetTypeName(Element element, Document doc)
+        private static ObjectFingerprintInfo BuildFingerprintFromManualAssign(
+            Document doc,
+            Element element,
+            PbsMapping selectedMapping,
+            string levelCode)
         {
             var typeId = element.GetTypeId();
-            if (typeId == null || typeId == ElementId.InvalidElementId) return string.Empty;
-            var type = doc.GetElement(typeId);
-            return type?.Name ?? string.Empty;
+            long typeIdValue = (typeId != null && typeId != ElementId.InvalidElementId)
+                ? typeId.Value : 0L;
+
+            string typeName = typeIdValue != 0
+                ? doc.GetElement(typeId)?.Name ?? string.Empty
+                : string.Empty;
+
+            var info = new ObjectFingerprintInfo
+            {
+                RbrPrCode  = string.Empty,
+                PbsPartR   = selectedMapping?.DisciplineCode ?? string.Empty,
+                PbsPartS   = selectedMapping?.ObjectCode ?? string.Empty,
+                LevelCode  = levelCode ?? string.Empty,
+                Prefix     = $"{selectedMapping?.DisciplineCode}-{selectedMapping?.ObjectCode}-{levelCode}",
+                TypeId     = typeIdValue,
+                TypeName   = typeName,
+                Category   = element.Category?.Name ?? string.Empty,
+                FamilyName = (element as FamilyInstance)?.Symbol?.FamilyName ?? string.Empty,
+            };
+
+            info.Fingerprint = RbrObjectFingerprintService.BuildFingerprintString(info);
+            return info;
         }
     }
 }

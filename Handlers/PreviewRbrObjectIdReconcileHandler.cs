@@ -3,6 +3,7 @@ using Autodesk.Revit.UI;
 using RB_TypeName.Models;
 using RB_TypeName.Services;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 
 namespace RB_TypeName.Handlers
@@ -32,18 +33,29 @@ namespace RB_TypeName.Handlers
                 var doc         = uidoc.Document;
                 var selectedIds = uidoc.Selection.GetElementIds().ToList();
 
-                if (selectedIds.Count == 0)
+                List<ElementId> targetIds;
+                bool scannedWholeModel = false;
+
+                if (selectedIds.Count > 0)
                 {
-                    result = new ObjectIdReconcileResult();
-                    result.Warnings.Add("No elements selected in Revit.");
+                    targetIds = selectedIds;
                 }
                 else
                 {
-                    result = RbrObjectIdReconcileService.BuildPreview(
-                        doc,
-                        selectedIds,
-                        LookupService,
-                        Options ?? new ObjectIdReconcileOptions());
+                    targetIds = CollectCandidateElementIds(doc);
+                    scannedWholeModel = true;
+                }
+
+                result = RbrObjectIdReconcileService.BuildPreview(
+                    doc,
+                    targetIds,
+                    LookupService,
+                    Options ?? new ObjectIdReconcileOptions());
+
+                if (scannedWholeModel)
+                {
+                    result.Warnings.Add(
+                        $"No Revit selection found. Scanned {targetIds.Count} candidate elements in the model.");
                 }
             }
             catch (Exception ex)
@@ -56,5 +68,31 @@ namespace RB_TypeName.Handlers
         }
 
         public string GetName() => "Preview RBR Object ID Reconcile";
+
+        // ── Helpers ──────────────────────────────────────────────────────────
+
+        private static List<ElementId> CollectCandidateElementIds(Document doc)
+        {
+            var result = new List<ElementId>();
+
+            var collector = new FilteredElementCollector(doc)
+                .WhereElementIsNotElementType();
+
+            foreach (var element in collector)
+            {
+                if (element == null) continue;
+
+                bool hasObjectIdParam =
+                    RevitParameterResolver.FindObjectIdParameter(element) != null;
+
+                bool hasPrCode =
+                    !string.IsNullOrWhiteSpace(RevitParameterResolver.ReadPrCode(element));
+
+                if (hasObjectIdParam || hasPrCode)
+                    result.Add(element.Id);
+            }
+
+            return result;
+        }
     }
 }

@@ -130,7 +130,7 @@ namespace RB_TypeName.Handlers
                     applied++;
 
                     // ── Update ledger ────────────────────────────────────────
-                    UpdateLedger(doc, element, row, ledger, options: Options);
+                    UpdateLedger(doc, element, row, ledger, LookupService);
                 }
 
                 // Save ledger within the same transaction.
@@ -155,7 +155,7 @@ namespace RB_TypeName.Handlers
             Element element,
             ObjectIdReconcileRow row,
             ObjectIdLedgerData ledger,
-            ObjectIdReconcileOptions options)
+            PbsPrCodeLookupService lookupService)
         {
             bool isReassignment =
                 !string.IsNullOrWhiteSpace(row.CurrentObjectId)
@@ -180,24 +180,34 @@ namespace RB_TypeName.Handlers
                     previousIds.Add(row.CurrentObjectId);
             }
 
-            var typeId = element.GetTypeId();
+            // Build a fresh fingerprint from the live element.
+            var fp = RbrObjectFingerprintService.Build(doc, element, lookupService);
+
+            // Fallback: if fingerprint service couldn't resolve prefix, use row data.
+            if (string.IsNullOrWhiteSpace(fp.Prefix))
+            {
+                fp.Prefix    = row.ExpectedPrefix;
+                fp.PbsPartR  = ExtractPbsR(row.ExpectedPrefix);
+                fp.PbsPartS  = ExtractPbsS(row.ExpectedPrefix);
+                fp.LevelCode = row.LevelCode;
+                fp.Fingerprint = RbrObjectFingerprintService.BuildFingerprintString(fp);
+            }
 
             var record = new ObjectIdLedgerRecord
             {
                 ObjectId        = row.ProposedObjectId,
                 ElementUniqueId = element.UniqueId ?? string.Empty,
                 ElementId       = element.Id.Value,
-                RbrPrCode       = row.RbrPrCode,
-                PbsPartR        = ExtractPbsR(row.ExpectedPrefix),
-                PbsPartS        = ExtractPbsS(row.ExpectedPrefix),
-                LevelCode       = row.LevelCode,
-                Prefix          = row.ExpectedPrefix,
-                Category        = row.Category,
-                FamilyName      = row.FamilyName,
-                TypeId          = (typeId != null && typeId != ElementId.InvalidElementId)
-                                   ? typeId.Value : row.TypeIdValue,
-                TypeName        = row.TypeName,
-                Fingerprint     = row.Fingerprint,
+                RbrPrCode       = fp.RbrPrCode,
+                PbsPartR        = fp.PbsPartR,
+                PbsPartS        = fp.PbsPartS,
+                LevelCode       = fp.LevelCode,
+                Prefix          = fp.Prefix,
+                Category        = fp.Category,
+                FamilyName      = fp.FamilyName,
+                TypeId          = fp.TypeId,
+                TypeName        = fp.TypeName,
+                Fingerprint     = fp.Fingerprint,
                 AssignedUtc     = existingRecord?.AssignedUtc ?? DateTime.UtcNow.ToString("o"),
                 UpdatedUtc      = DateTime.UtcNow.ToString("o"),
                 PreviousObjectIds = previousIds,

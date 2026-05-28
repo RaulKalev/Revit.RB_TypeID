@@ -38,6 +38,8 @@ The ledger stores:
 - Assignment and last-update timestamps
 - A history of previous Object IDs (if an ID was reassigned)
 
+Every assigned Object ID creates or updates a ledger record with a fingerprint of the element's current PBS classification, level, type, category, and family. The reconcile workflow uses this to detect type/classification/level changes later.
+
 Retired/replaced IDs are also kept in a separate list so the ledger can reliably prevent their reuse even after the originating elements are deleted.
 
 ### Update / Reconcile IDs
@@ -52,7 +54,7 @@ The **Update / Reconcile IDs** section provides a non-destructive way to review 
 - **Show valid rows** — include rows with no issues (useful for auditing)
 
 **Workflow:**
-1. Optionally pre-select elements (otherwise the whole model is scanned).
+1. If elements are selected, **Update IDs** scans only the selection. If nothing is selected, it scans all model elements that have `RBR-Object_ID` and/or `RBR_Pr_Code`.
 2. Set options.
 3. Click **Update IDs** — builds a preview in the Reconcile grid.
 4. Review the grid, deselect rows you do not want to change.
