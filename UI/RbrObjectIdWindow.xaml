@@ -52,9 +52,10 @@
                         <RowDefinition Height="Auto" />  <!-- Row 0: Options -->
                         <RowDefinition Height="Auto" />  <!-- Row 1: PBS Mapping -->
                         <RowDefinition Height="Auto" />  <!-- Row 2: Warnings -->
-                        <RowDefinition Height="Auto" />  <!-- Row 3: Action buttons -->
-                        <RowDefinition Height="*"    />  <!-- Row 4: Results grid -->
-                        <RowDefinition Height="Auto" />  <!-- Row 5: Summary footer -->
+                        <RowDefinition Height="Auto" />  <!-- Row 3: Assign buttons -->
+                        <RowDefinition Height="Auto" />  <!-- Row 4: Reconcile options + buttons -->
+                        <RowDefinition Height="*"    />  <!-- Row 5: DataGrids (toggled) -->
+                        <RowDefinition Height="Auto" />  <!-- Row 6: Summary footer -->
                     </Grid.RowDefinitions>
 
                     <!-- ── Options ──────────────────────────────────────── -->
@@ -113,8 +114,8 @@
                                    TextWrapping="Wrap" />
                     </Border>
 
-                    <!-- ── Action buttons ───────────────────────────────── -->
-                    <Grid Grid.Row="3" Margin="0,0,0,8">
+                    <!-- ── Assign workflow buttons (Row 3) ──────────────── -->
+                    <Grid Grid.Row="3" Margin="0,0,0,4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="Auto" />
@@ -126,45 +127,103 @@
                         <Button x:Name="PreviewButton"
                                 Grid.Column="1"
                                 Content="Preview Object IDs"
-                                Width="130" Height="32"
+                                Width="130" Height="28"
                                 Margin="0,0,6,0"
-                                FontSize="12"
+                                FontSize="11"
                                 Click="Preview_Click" />
                         <Button x:Name="ApplyButton"
                                 Grid.Column="2"
                                 Content="Apply Object IDs"
-                                Width="120" Height="32"
+                                Width="120" Height="28"
                                 Margin="0,0,6,0"
-                                FontSize="12"
+                                FontSize="11"
                                 IsEnabled="False"
                                 Click="Apply_Click" />
                         <Button x:Name="AssignButton"
                                 Grid.Column="3"
                                 Content="Assign (manual)"
-                                Width="110" Height="32"
+                                Width="110" Height="28"
                                 Margin="0,0,6,0"
-                                FontSize="12"
+                                FontSize="11"
                                 Click="Assign_Click" />
                         <Button x:Name="ExportButton"
                                 Grid.Column="4"
                                 Content="Export Report"
-                                Width="105" Height="32"
+                                Width="100" Height="28"
                                 Margin="0,0,6,0"
-                                FontSize="12"
+                                FontSize="11"
                                 IsEnabled="False"
                                 Click="Export_Click" />
                         <Button x:Name="ClearObjectIdsButton"
                                 Grid.Column="5"
                                 Content="Clear All IDs…"
-                                Width="105" Height="32"
-                                FontSize="12"
+                                Width="100" Height="28"
+                                FontSize="11"
                                 Foreground="#CC0000"
                                 Click="ClearObjectIds_Click" />
                     </Grid>
 
-                    <!-- ── Results DataGrid ──────────────────────────────── -->
+                    <!-- ── Reconcile options + buttons (Row 4) ──────────── -->
+                    <GroupBox Grid.Row="4" Header="Update / Reconcile IDs" Margin="0,4,0,8">
+                        <Grid Margin="8,4,8,4">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+
+                            <!-- Reconcile checkboxes -->
+                            <WrapPanel Grid.Row="0" Margin="0,0,0,6">
+                                <CheckBox x:Name="ReconcileIncludeMissingCheck"
+                                          Content="Include missing IDs"
+                                          IsChecked="True"
+                                          Margin="0,0,16,2" />
+                                <CheckBox x:Name="ReconcileRepairDuplicatesCheck"
+                                          Content="Repair copied / duplicate IDs"
+                                          IsChecked="True"
+                                          Margin="0,0,16,2" />
+                                <CheckBox x:Name="ReconcileFlagChangedCheck"
+                                          Content="Flag changed type / level"
+                                          IsChecked="True"
+                                          Margin="0,0,16,2" />
+                                <CheckBox x:Name="ReconcileReassignChangedCheck"
+                                          Content="Reassign changed type / level IDs"
+                                          IsChecked="False"
+                                          Margin="0,0,16,2" />
+                                <CheckBox x:Name="ReconcileShowValidCheck"
+                                          Content="Show valid rows"
+                                          IsChecked="True"
+                                          Margin="0,0,16,2" />
+                            </WrapPanel>
+
+                            <!-- Reconcile buttons -->
+                            <StackPanel Grid.Row="1" Orientation="Horizontal">
+                                <Button x:Name="UpdateIdsButton"
+                                        Content="Update IDs"
+                                        Width="110" Height="28"
+                                        Margin="0,0,6,0"
+                                        FontSize="11"
+                                        Click="UpdateIds_Click" />
+                                <Button x:Name="ApplyReconcileButton"
+                                        Content="Apply Selected Fixes"
+                                        Width="140" Height="28"
+                                        Margin="0,0,6,0"
+                                        FontSize="11"
+                                        IsEnabled="False"
+                                        Click="ApplyReconcile_Click" />
+                                <TextBlock x:Name="ReconcileStatusText"
+                                           VerticalAlignment="Center"
+                                           Margin="8,0,0,0"
+                                           Foreground="Gray"
+                                           FontStyle="Italic"
+                                           FontSize="11" />
+                            </StackPanel>
+                        </Grid>
+                    </GroupBox>
+
+                    <!-- ── Assign workflow ResultsGrid (Row 5, visible by default) ── -->
                     <DataGrid x:Name="ResultsGrid"
-                              Grid.Row="4"
+                              Grid.Row="5"
+                              Visibility="Visible"
                               AutoGenerateColumns="False"
                               IsReadOnly="False"
                               CanUserAddRows="False"
@@ -222,12 +281,104 @@
                         </DataGrid.Columns>
                     </DataGrid>
 
-                    <!-- ── Summary footer ───────────────────────────────── -->
+                    <!-- ── Reconcile DataGrid (Row 5, hidden until Update IDs runs) ── -->
+                    <DataGrid x:Name="ReconcileGrid"
+                              Grid.Row="5"
+                              Visibility="Collapsed"
+                              AutoGenerateColumns="False"
+                              IsReadOnly="False"
+                              CanUserAddRows="False"
+                              CanUserDeleteRows="False"
+                              HeadersVisibility="Column"
+                              GridLinesVisibility="Horizontal"
+                              BorderBrush="#CCCCCC"
+                              BorderThickness="1"
+                              FontSize="11"
+                              PreviewMouseLeftButtonDown="ReconcileGrid_PreviewMouseLeftButtonDown">
+                        <DataGrid.Columns>
+                            <DataGridCheckBoxColumn Header="✓"
+                                                    Binding="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                    Width="32" />
+                            <DataGridTextColumn Header="Status"
+                                                Binding="{Binding Status}"
+                                                IsReadOnly="True"
+                                                Width="200" />
+                            <DataGridTextColumn Header="Element ID"
+                                                Binding="{Binding ElementIdValue}"
+                                                IsReadOnly="True"
+                                                Width="80" />
+                            <DataGridTextColumn Header="Unique ID"
+                                                Binding="{Binding UniqueId}"
+                                                IsReadOnly="True"
+                                                Width="220" />
+                            <DataGridTextColumn Header="Category"
+                                                Binding="{Binding Category}"
+                                                IsReadOnly="True"
+                                                Width="110" />
+                            <DataGridTextColumn Header="Family"
+                                                Binding="{Binding FamilyName}"
+                                                IsReadOnly="True"
+                                                Width="110" />
+                            <DataGridTextColumn Header="Type"
+                                                Binding="{Binding TypeName}"
+                                                IsReadOnly="True"
+                                                Width="130" />
+                            <DataGridTextColumn Header="RBR_Pr_Code"
+                                                Binding="{Binding RbrPrCode}"
+                                                IsReadOnly="True"
+                                                Width="100" />
+                            <DataGridTextColumn Header="Level"
+                                                Binding="{Binding LevelCode}"
+                                                IsReadOnly="True"
+                                                Width="55" />
+                            <DataGridTextColumn Header="Current Prefix"
+                                                Binding="{Binding CurrentPrefix}"
+                                                IsReadOnly="True"
+                                                Width="105" />
+                            <DataGridTextColumn Header="Expected Prefix"
+                                                Binding="{Binding ExpectedPrefix}"
+                                                IsReadOnly="True"
+                                                Width="105" />
+                            <DataGridTextColumn Header="Current Object ID"
+                                                Binding="{Binding CurrentObjectId}"
+                                                IsReadOnly="True"
+                                                Width="145" />
+                            <DataGridTextColumn Header="Proposed Object ID"
+                                                Binding="{Binding ProposedObjectId}"
+                                                IsReadOnly="True"
+                                                Width="145" />
+                            <DataGridTextColumn Header="Prev. Type"
+                                                Binding="{Binding PreviousTypeName}"
+                                                IsReadOnly="True"
+                                                Width="110" />
+                            <DataGridTextColumn Header="Prev. Pr_Code"
+                                                Binding="{Binding PreviousRbrPrCode}"
+                                                IsReadOnly="True"
+                                                Width="95" />
+                            <DataGridTextColumn Header="Prev. Level"
+                                                Binding="{Binding PreviousLevelCode}"
+                                                IsReadOnly="True"
+                                                Width="75" />
+                            <DataGridTextColumn Header="Reason"
+                                                Binding="{Binding Reason}"
+                                                IsReadOnly="True"
+                                                Width="*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+
+                    <!-- ── Summary footer (Row 6) ────────────────────────── -->
                     <TextBlock x:Name="SummaryText"
-                               Grid.Row="5"
+                               Grid.Row="6"
                                Margin="0,6,0,0"
                                FontWeight="SemiBold"
-                               FontSize="12" />
+                               FontSize="12"
+                               Visibility="Visible" />
+                    <TextBlock x:Name="ReconcileSummaryText"
+                               Grid.Row="6"
+                               Margin="0,6,0,0"
+                               FontWeight="SemiBold"
+                               FontSize="12"
+                               Visibility="Collapsed" />
                 </Grid>
             </TabItem>
 

@@ -58,7 +58,9 @@ namespace RB_TypeName.Commands
                     App.SaveMappingsHandler,            App.SaveMappingsExternalEvent,
                     App.ImportMappingsHandler,          App.ImportMappingsExternalEvent,
                     App.ExportMappingsHandler,          App.ExportMappingsExternalEvent,
-                    App.ClearObjectIdsHandler,          App.ClearObjectIdsExternalEvent);
+                    App.ClearObjectIdsHandler,          App.ClearObjectIdsExternalEvent,
+                    App.ReconcilePreviewHandler,        App.ReconcilePreviewExternalEvent,
+                    App.ReconcileApplyHandler,          App.ReconcileApplyExternalEvent);
             _window.Closed += (s, args) => _window = null;
             _window.Show();
         }

@@ -56,11 +56,19 @@ namespace RB_TypeName.UI
         private readonly ClearObjectIdsHandler           _clearObjectIdsHandler;
         private readonly ExternalEvent                   _clearObjectIdsEvent;
 
+        private readonly PreviewRbrObjectIdReconcileHandler _reconcilePreviewHandler;
+        private readonly ExternalEvent                      _reconcilePreviewEvent;
+
+        private readonly ApplyRbrObjectIdReconcileHandler   _reconcileApplyHandler;
+        private readonly ExternalEvent                      _reconcileApplyEvent;
+
         // ── State ────────────────────────────────────────────────────────────
 
         private PbsExcelSourceSettings  _settings;
         private List<ObjectIdPreviewRow> _previewRows;
         private bool _isLoadingSettings;
+
+        private List<ObjectIdReconcileRow>            _reconcileRows;
 
         private List<TypeNumberPreviewRow>            _typeRows;
         private Dictionary<string, PbsTypeNumberRow>  _typeNumberLookup;
@@ -80,7 +88,9 @@ namespace RB_TypeName.UI
             SaveTypeNumberMappingsHandler  saveMappingsHandler,  ExternalEvent saveMappingsEvent,
             ImportTypeNumberMappingsHandler importMappingsHandler, ExternalEvent importMappingsEvent,
             ExportTypeNumberMappingsHandler exportMappingsHandler, ExternalEvent exportMappingsEvent,
-            ClearObjectIdsHandler           clearObjectIdsHandler, ExternalEvent clearObjectIdsEvent)
+            ClearObjectIdsHandler           clearObjectIdsHandler, ExternalEvent clearObjectIdsEvent,
+            PreviewRbrObjectIdReconcileHandler reconcilePreviewHandler, ExternalEvent reconcilePreviewEvent,
+            ApplyRbrObjectIdReconcileHandler   reconcileApplyHandler,   ExternalEvent reconcileApplyEvent)
         {
             InitializeComponent();
 
@@ -105,6 +115,11 @@ namespace RB_TypeName.UI
             _exportMappingsEvent   = exportMappingsEvent;
             _clearObjectIdsHandler = clearObjectIdsHandler;
             _clearObjectIdsEvent   = clearObjectIdsEvent;
+
+            _reconcilePreviewHandler = reconcilePreviewHandler;
+            _reconcilePreviewEvent   = reconcilePreviewEvent;
+            _reconcileApplyHandler   = reconcileApplyHandler;
+            _reconcileApplyEvent     = reconcileApplyEvent;
 
             _assignHandler.OnCompleted = (results, index) =>
                 Dispatcher.Invoke(() => ShowAssignResults(results, index));
@@ -158,6 +173,12 @@ namespace RB_TypeName.UI
                     else
                         SetStatus($"Cleared {count} Object ID(s) from project.", isError: false);
                 });
+
+            _reconcilePreviewHandler.OnCompleted = result =>
+                Dispatcher.Invoke(() => ShowReconcileResults(result));
+
+            _reconcileApplyHandler.OnCompleted = (applied, skipped, errors) =>
+                Dispatcher.Invoke(() => ShowApplyReconcileResults(applied, skipped, errors));
 
             LoadSettings();
         }
@@ -556,7 +577,161 @@ namespace RB_TypeName.UI
             _clearObjectIdsEvent.Raise();
         }
 
+        // ── Reconcile workflow ────────────────────────────────────────────────
+
+        private void UpdateIds_Click(object sender, RoutedEventArgs e)
+        {
+            // Ensure lookup service is initialised from PBS file.
+            var lookupService = BuildLookupService();
+            if (lookupService == null)
+            {
+                SetStatus("Load a PBS file before running Update IDs.", isError: true);
+                return;
+            }
+
+            var options = BuildReconcileOptions();
+
+            _reconcilePreviewHandler.Options       = options;
+            _reconcilePreviewHandler.LookupService = lookupService;
+
+            UpdateIdsButton.IsEnabled       = false;
+            ApplyReconcileButton.IsEnabled  = false;
+            ReconcileStatusText.Text        = "Building reconcile preview…";
+
+            // Hide assign-workflow grids, show reconcile grid.
+            ResultsGrid.Visibility          = Visibility.Collapsed;
+            SummaryText.Visibility          = Visibility.Collapsed;
+            ReconcileGrid.Visibility        = Visibility.Visible;
+            ReconcileSummaryText.Visibility = Visibility.Visible;
+
+            _reconcilePreviewEvent.Raise();
+        }
+
+        private void ApplyReconcile_Click(object sender, RoutedEventArgs e)
+        {
+            if (_reconcileRows == null || _reconcileRows.Count == 0)
+                return;
+
+            var toApply = _reconcileRows
+                .Where(r => r.IsSelected && r.IsWriteAllowed
+                            && !string.IsNullOrWhiteSpace(r.ProposedObjectId))
+                .ToList();
+
+            if (toApply.Count == 0)
+            {
+                ReconcileStatusText.Text = "No rows selected with a proposed ID.";
+                return;
+            }
+
+            var lookupService = BuildLookupService();
+            if (lookupService == null)
+            {
+                SetStatus("Load a PBS file before applying.", isError: true);
+                return;
+            }
+
+            _reconcileApplyHandler.RowsToApply   = toApply;
+            _reconcileApplyHandler.Options        = BuildReconcileOptions();
+            _reconcileApplyHandler.LookupService  = lookupService;
+
+            ApplyReconcileButton.IsEnabled = false;
+            UpdateIdsButton.IsEnabled      = false;
+            ReconcileStatusText.Text       = $"Applying {toApply.Count} fix(es)…";
+
+            _reconcileApplyEvent.Raise();
+        }
+
+        private void ShowReconcileResults(ObjectIdReconcileResult result)
+        {
+            _reconcileRows = result?.Rows ?? new List<ObjectIdReconcileRow>();
+
+            ReconcileGrid.ItemsSource    = _reconcileRows;
+            UpdateIdsButton.IsEnabled    = true;
+            ApplyReconcileButton.IsEnabled = _reconcileRows.Any(r => r.IsSelected && r.IsWriteAllowed
+                                                                    && !string.IsNullOrWhiteSpace(r.ProposedObjectId));
+
+            if (result == null)
+            {
+                ReconcileStatusText.Text      = "No result returned.";
+                ReconcileSummaryText.Text     = string.Empty;
+                return;
+            }
+
+            ReconcileStatusText.Text = string.Empty;
+            var parts = new List<string>();
+            if (result.ValidCount    > 0) parts.Add($"{result.ValidCount} valid");
+            if (result.MissingCount  > 0) parts.Add($"{result.MissingCount} missing");
+            if (result.DuplicateCount > 0) parts.Add($"{result.DuplicateCount} duplicate");
+            if (result.ChangedCount  > 0) parts.Add($"{result.ChangedCount} changed");
+            if (result.ErrorCount    > 0) parts.Add($"{result.ErrorCount} error(s)");
+
+            ReconcileSummaryText.Text = parts.Count > 0
+                ? "Reconcile preview: " + string.Join("  |  ", parts)
+                : "Reconcile complete — nothing to fix.";
+
+            if (result.Warnings?.Count > 0)
+            {
+                WarningsText.Text         = string.Join("\n", result.Warnings);
+                WarningsBorder.Visibility = Visibility.Visible;
+            }
+        }
+
+        private void ShowApplyReconcileResults(int applied, int skipped, List<string> errors)
+        {
+            UpdateIdsButton.IsEnabled    = true;
+            ApplyReconcileButton.IsEnabled = false;
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"Reconcile apply complete: {applied} applied");
+            if (skipped > 0) sb.Append($", {skipped} skipped");
+            if (errors?.Count > 0) sb.Append($", {errors.Count} error(s)");
+            ReconcileSummaryText.Text  = sb.ToString();
+            ReconcileStatusText.Text   = string.Empty;
+
+            if (errors?.Count > 0)
+            {
+                WarningsText.Text         = string.Join("\n", errors);
+                WarningsBorder.Visibility = Visibility.Visible;
+            }
+        }
+
+        private ObjectIdReconcileOptions BuildReconcileOptions() =>
+            new ObjectIdReconcileOptions
+            {
+                IncludeMissingIds          = ReconcileIncludeMissingCheck.IsChecked   == true,
+                RepairDuplicates           = ReconcileRepairDuplicatesCheck.IsChecked == true,
+                FlagChangedElements        = ReconcileFlagChangedCheck.IsChecked      == true,
+                ReassignChangedElements    = ReconcileReassignChangedCheck.IsChecked  == true,
+                IncludeValidRows           = ReconcileShowValidCheck.IsChecked        == true,
+            };
+
+        private PbsPrCodeLookupService BuildLookupService()
+        {
+            if (_settings == null || string.IsNullOrEmpty(_settings.ExcelPath)
+                || !System.IO.File.Exists(_settings.ExcelPath))
+                return null;
+
+            var (success, _, rows) = PbsMappingService.LoadPrCodeRows(_settings);
+            return success && rows != null
+                ? new PbsPrCodeLookupService(rows)
+                : null;
+        }
+
         // ── DataGrid: single-click checkbox support ───────────────────────────
+
+        private void ReconcileGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            var dep = (DependencyObject)e.OriginalSource;
+            while (dep != null && dep is not DataGridCell)
+                dep = VisualTreeHelper.GetParent(dep);
+
+            if (dep is DataGridCell cell && !cell.IsEditing && !cell.IsReadOnly)
+            {
+                if (!cell.IsFocused)
+                    cell.Focus();
+                ReconcileGrid.BeginEdit(e);
+            }
+        }
 
         private void ResultsGrid_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
         {

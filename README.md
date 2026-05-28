@@ -27,6 +27,42 @@ The plugin looks up that value in the selected PBS Excel file and uses PBS colum
 If manual fallback is enabled, the selected PBS mapping is used when `RBR_Pr_Code` is missing or cannot be matched to a PBS row.
 Fallback rows are marked in the preview **Message** column.
 
+### Object ID ledger (Extensible Storage)
+
+Every time an Object ID is assigned — whether via **Preview → Apply**, **Assign (manual)**, or **Apply Selected Fixes** — the plugin records a ledger entry in the Revit model using **Extensible Storage** (schema `RKTools_RbrObjectIdLedger`).
+
+The ledger stores:
+- The element's stable `UniqueId` and last-known `ElementId`
+- The PBS prefix, level code, type name, family name, and `RBR_Pr_Code` at the time of assignment
+- A fingerprint string combining these fields — used to detect if the element has changed
+- Assignment and last-update timestamps
+- A history of previous Object IDs (if an ID was reassigned)
+
+Retired/replaced IDs are also kept in a separate list so the ledger can reliably prevent their reuse even after the originating elements are deleted.
+
+### Update / Reconcile IDs
+
+The **Update / Reconcile IDs** section provides a non-destructive way to review the state of Object IDs across a selection (or the whole model if nothing is selected) and apply targeted fixes.
+
+**Options:**
+- **Include missing IDs** — show elements that have no Object ID at all
+- **Repair copied / duplicate IDs** — detect elements sharing the same ID (e.g. after Revit copy/paste), propose new IDs for the non-original copies
+- **Flag changed type / level** — use the ledger fingerprint to detect elements whose type, level, or `RBR_Pr_Code` has changed since the ID was assigned
+- **Reassign changed type / level IDs** — if enabled, also propose new IDs for elements that have changed (off by default — use intentionally)
+- **Show valid rows** — include rows with no issues (useful for auditing)
+
+**Workflow:**
+1. Optionally pre-select elements (otherwise the whole model is scanned).
+2. Set options.
+3. Click **Update IDs** — builds a preview in the Reconcile grid.
+4. Review the grid, deselect rows you do not want to change.
+5. Click **Apply Selected Fixes** — writes proposed IDs and updates the ledger.
+
+**Duplicate resolution logic:**
+- If exactly one element is the ledger-recorded owner of the duplicated ID, that element keeps its ID (status: `DuplicateKeeper`) and the copy receives a new one (status: `DuplicateNeedsNew`).
+- If no ledger entry exists, the element with the lowest `ElementId` value keeps the ID.
+- If multiple ledger entries claim the same ID (ambiguous), all copies are flagged as `Ambiguous` and the user is prompted to resolve manually.
+
 ## Type Numbers workflow (Tab 2)
 
 1. Select a PBS Excel file (same file, shared).

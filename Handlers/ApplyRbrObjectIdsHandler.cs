@@ -46,6 +46,8 @@ namespace RB_TypeName.Handlers
 
                 // Build a fresh index to catch changes since the preview was built.
                 var currentIndex = RbrObjectIdIndex.BuildFromDocument(doc);
+                var ledger = RbrObjectIdLedgerService.Load(doc);
+                var now    = DateTime.UtcNow.ToString("o");
 
                 using var tx = new Transaction(doc, "Apply RBR Object IDs");
                 tx.Start();
@@ -100,7 +102,32 @@ namespace RB_TypeName.Handlers
                     currentIndex.Register(row.ProposedObjectId);
                     row.Status = "Assigned";
                     assigned++;
+
+                    // Record in ledger.
+                    var typeEid = element.GetTypeId();
+                    var record = new ObjectIdLedgerRecord
+                    {
+                        ObjectId        = row.ProposedObjectId,
+                        ElementUniqueId = element.UniqueId ?? string.Empty,
+                        ElementId       = row.ElementIdValue,
+                        RbrPrCode       = row.RbrPrCode,
+                        PbsPartR        = row.PbsPartR,
+                        PbsPartS        = row.PbsPartS,
+                        LevelCode       = row.LevelCode,
+                        Prefix          = $"{row.PbsPartR}-{row.PbsPartS}-{row.LevelCode}",
+                        Category        = row.Category,
+                        FamilyName      = (element as FamilyInstance)?.Symbol?.FamilyName ?? string.Empty,
+                        TypeId          = (typeEid != null && typeEid != ElementId.InvalidElementId)
+                                           ? typeEid.Value : 0L,
+                        TypeName        = doc.GetElement(typeEid)?.Name ?? string.Empty,
+                        Fingerprint     = string.Empty,
+                        AssignedUtc     = now,
+                        UpdatedUtc      = now,
+                    };
+                    RbrObjectIdLedgerService.UpsertRecord(ledger, record);
                 }
+
+                RbrObjectIdLedgerService.Save(doc, ledger);
 
                 tx.Commit();
             }

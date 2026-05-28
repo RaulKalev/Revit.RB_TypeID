@@ -1,6 +1,7 @@
 using Autodesk.Revit.UI;
 using RB_TypeName.Commands;
 using RB_TypeName.Handlers;
+using RB_TypeName.Services;
 using ricaun.Revit.UI;
 
 namespace RB_TypeName
@@ -38,6 +39,12 @@ namespace RB_TypeName
         public static ClearObjectIdsHandler          ClearObjectIdsHandler         { get; private set; }
         public static ExternalEvent                   ClearObjectIdsExternalEvent   { get; private set; }
 
+        public static PreviewRbrObjectIdReconcileHandler ReconcilePreviewHandler       { get; private set; }
+        public static ExternalEvent                      ReconcilePreviewExternalEvent { get; private set; }
+
+        public static ApplyRbrObjectIdReconcileHandler   ReconcileApplyHandler         { get; private set; }
+        public static ExternalEvent                      ReconcileApplyExternalEvent   { get; private set; }
+
         private RibbonPanel ribbonPanel;
 
         public Result OnStartup(UIControlledApplication application)
@@ -72,6 +79,12 @@ namespace RB_TypeName
             ClearObjectIdsHandler         = new ClearObjectIdsHandler();
             ClearObjectIdsExternalEvent   = ExternalEvent.Create(ClearObjectIdsHandler);
 
+            ReconcilePreviewHandler       = new PreviewRbrObjectIdReconcileHandler();
+            ReconcilePreviewExternalEvent = ExternalEvent.Create(ReconcilePreviewHandler);
+
+            ReconcileApplyHandler         = new ApplyRbrObjectIdReconcileHandler();
+            ReconcileApplyExternalEvent   = ExternalEvent.Create(ReconcileApplyHandler);
+
             const string tabName = "RK Tools";
 
             try { application.CreateRibbonTab(tabName); }
@@ -98,6 +111,8 @@ namespace RB_TypeName
             ImportMappingsExternalEvent?.Dispose();
             ExportMappingsExternalEvent?.Dispose();
             ClearObjectIdsExternalEvent?.Dispose();
+            ReconcilePreviewExternalEvent?.Dispose();
+            ReconcileApplyExternalEvent?.Dispose();
             return Result.Succeeded;
         }
     }
