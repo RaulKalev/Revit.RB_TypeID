@@ -359,10 +359,22 @@ namespace RB_TypeName.Services
             {
                 if (!row.IsWriteAllowed) continue;
                 if (!NeedsProposedId(row, options)) continue;
-                if (string.IsNullOrWhiteSpace(row.ExpectedPrefix)) continue;
 
-                int next     = index.GetNextNumber(row.ExpectedPrefix);
-                string newId = $"{row.ExpectedPrefix}-{next:D4}";
+                // For duplicates where PBS lookup failed, fall back to the prefix
+                // extracted from the current Object ID so we can still propose a
+                // new sequential ID in the same series.
+                string prefix = row.ExpectedPrefix;
+                if (string.IsNullOrWhiteSpace(prefix)
+                    && (row.Status == StatusDuplicateNeedsNew || row.Status == StatusCopied)
+                    && !string.IsNullOrWhiteSpace(row.CurrentPrefix))
+                {
+                    prefix = row.CurrentPrefix;
+                }
+
+                if (string.IsNullOrWhiteSpace(prefix)) continue;
+
+                int next     = index.GetNextNumber(prefix);
+                string newId = $"{prefix}-{next:D4}";
                 index.Register(newId);
                 row.ProposedObjectId = newId;
             }

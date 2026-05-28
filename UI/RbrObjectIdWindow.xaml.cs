@@ -581,13 +581,9 @@ namespace RB_TypeName.UI
 
         private void UpdateIds_Click(object sender, RoutedEventArgs e)
         {
-            // Ensure lookup service is initialised from PBS file.
+            // LookupService is optional — null means PBS prefix resolution is skipped,
+            // but duplicate detection, missing ID checks, and fingerprint checks still work.
             var lookupService = BuildLookupService();
-            if (lookupService == null)
-            {
-                SetStatus("Load a PBS file before running Update IDs.", isError: true);
-                return;
-            }
 
             var options = BuildReconcileOptions();
 
@@ -623,12 +619,8 @@ namespace RB_TypeName.UI
                 return;
             }
 
+            // LookupService may be null — fingerprint will still record type/category/level.
             var lookupService = BuildLookupService();
-            if (lookupService == null)
-            {
-                SetStatus("Load a PBS file before applying.", isError: true);
-                return;
-            }
 
             _reconcileApplyHandler.RowsToApply   = toApply;
             _reconcileApplyHandler.Options        = BuildReconcileOptions();
